@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+python-dotenv
+langchain
+langchain-groq
+streamlit
+python-docx
+pandas
+matplotlib
+openpyxl
+passlib
+bcrypt

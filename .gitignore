@@ -1,0 +1,5 @@
+HRPilot/
+.env
+__pycache__/
+*.pyc
+.sixth/
