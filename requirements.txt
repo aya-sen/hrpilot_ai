@@ -12,3 +12,4 @@ matplotlib
 openpyxl
 passlib
 bcrypt
+pymupdf

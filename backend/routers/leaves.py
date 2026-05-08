@@ -1,0 +1,159 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from backend.database import get_db
+from backend.schemas import LeaveRequestCreate, LeaveRequestResponse
+import backend.models as models
+from typing import List
+from datetime import date
+
+router = APIRouter(
+    prefix="/leaves",
+    tags=["Leave Requests"]
+)
+
+# ── Submit a leave request (Employee) ────────────────────────────────────────
+@router.post("/submit", response_model=LeaveRequestResponse)
+def submit_leave(employee_id: int, request: LeaveRequestCreate, db: Session = Depends(get_db)):
+    
+    # Get employee to find their manager
+    employee = db.query(models.Employee).filter(
+        models.Employee.employee_id == employee_id
+    ).first()
+    
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # If manager or HR → skip manager step
+    if employee.role in ["Manager", "HR"]:
+        initial_status = "Pending_HR"
+    else:
+        initial_status = "Pending_Manager"
+    
+    new_request = models.LeaveRequest(
+        employee_id     = employee_id,
+        manager_id      = employee.manager_id,
+        leave_type      = request.leave_type,
+        start_date      = request.start_date,
+        end_date        = request.end_date,
+        duration_days   = request.duration_days,
+        status          = initial_status,
+        submission_date = date.today()
+    )
+    
+    db.add(new_request)
+    db.commit()
+    db.refresh(new_request)
+    return new_request
+
+# ── Get my requests (Employee) ────────────────────────────────────────────────
+@router.get("/my-requests/{employee_id}", response_model=List[LeaveRequestResponse])
+def get_my_requests(employee_id: int, db: Session = Depends(get_db)):
+    requests = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.employee_id == employee_id
+    ).all()
+    return requests
+
+# ── Get pending requests for manager ─────────────────────────────────────────
+@router.get("/pending-manager/{manager_id}", response_model=List[LeaveRequestResponse])
+def get_pending_for_manager(manager_id: int, db: Session = Depends(get_db)):
+    requests = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.manager_id == manager_id,
+        models.LeaveRequest.status == "Pending_Manager"
+    ).all()
+    return requests
+
+# ── Get pending requests for HR ───────────────────────────────────────────────
+@router.get("/pending-hr", response_model=List[LeaveRequestResponse])
+def get_pending_for_hr(db: Session = Depends(get_db)):
+    requests = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.status == "Pending_HR"
+    ).all()
+    return requests
+
+# ── Manager approves or rejects ───────────────────────────────────────────────
+@router.put("/{request_id}/manager-decision")
+def manager_decision(request_id: int, decision: str, comment: str = None, db: Session = Depends(get_db)):
+    
+    leave = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.request_id == request_id
+    ).first()
+    
+    if not leave:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if decision == "approve":
+        leave.status = "Pending_HR"
+    elif decision == "reject":
+        leave.status = "Rejected"
+    else:
+        raise HTTPException(status_code=400, detail="Decision must be 'approve' or 'reject'")
+    
+    if comment:
+        leave.manager_comment = comment
+    
+    db.commit()
+    db.refresh(leave)
+    return {"message": f"Request {decision}d", "new_status": leave.status}
+
+# ── HR final approval ─────────────────────────────────────────────────────────
+@router.put("/{request_id}/hr-approve")
+def hr_approve(request_id: int, db: Session = Depends(get_db)):
+    
+    leave = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.request_id == request_id
+    ).first()
+    
+    if not leave:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # Update status to Approved
+    leave.status = "Approved"
+    
+    # Deduct leave balance from employee
+    employee = db.query(models.Employee).filter(
+        models.Employee.employee_id == leave.employee_id
+    ).first()
+    
+    if employee and leave.duration_days:
+        if employee.leave_balance_days < leave.duration_days:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient leave balance. Available: {employee.leave_balance_days} days"
+            )
+        employee.leave_balance_days -= leave.duration_days
+    
+    db.commit()
+    db.refresh(leave)
+    return {
+        "message": "Leave request approved by HR",
+        "request_id": request_id,
+        "new_balance": employee.leave_balance_days if employee else None
+    }
+
+# ── Check team availability (for chatbot) ────────────────────────────────────
+@router.get("/team-availability/{department}")
+def check_team_availability(department: str, start_date: date, end_date: date, db: Session = Depends(get_db)):
+    
+    # Count how many people from this department are on approved leave during these dates
+    conflicts = db.query(models.LeaveRequest).join(
+        models.Employee,
+        models.LeaveRequest.employee_id == models.Employee.employee_id
+    ).filter(
+        models.Employee.department == department,
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date <= end_date,
+        models.LeaveRequest.end_date >= start_date
+    ).count()
+    
+    # Get total team size
+    team_size = db.query(models.Employee).filter(
+        models.Employee.department == department
+    ).count()
+    
+    return {
+        "department": department,
+        "team_size": team_size,
+        "absent_during_period": conflicts,
+        "available": team_size - conflicts,
+        "warning": conflicts >= 3
+    }
