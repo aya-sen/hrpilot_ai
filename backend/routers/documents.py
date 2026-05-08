@@ -44,17 +44,23 @@ def get_my_doc_requests(employee_id: int, db: Session = Depends(get_db)):
     return requests
 
 # ── Get all pending document requests (HR) ────────────────────────────────────
-@router.get("/pending", response_model=List[DocumentRequestResponse])
-def get_pending_documents(db: Session = Depends(get_db)):
-    requests = db.query(models.DocumentRequest).filter(
-        models.DocumentRequest.status == "Pending"
+@router.get("/pending/{city}", response_model=List[DocumentRequestResponse])
+def get_pending_documents(city: str, db: Session = Depends(get_db)):
+    # On fait une jointure avec Employee pour filtrer par ville
+    requests = db.query(models.DocumentRequest).join(models.Employee).filter(
+        models.DocumentRequest.status == "Pending",
+        models.Employee.city == city
     ).all()
     return requests
 
-# ── Get all document requests (HR) ───────────────────────────────────────────
-@router.get("/all", response_model=List[DocumentRequestResponse])
-def get_all_documents(db: Session = Depends(get_db)):
-    requests = db.query(models.DocumentRequest).all()
+# ── Get all document requests for a specific city (HR) ────────────────────────
+@router.get("/all/{city}", response_model=List[DocumentRequestResponse])
+def get_all_documents(city: str, db: Session = Depends(get_db)):
+    # On lie les deux tables pour filtrer par la ville de l'employé
+    requests = db.query(models.DocumentRequest).join(models.Employee).filter(
+        models.Employee.city == city
+    ).all()
+    
     return requests
 
 # ── Generate document (HR) ────────────────────────────────────────────────────

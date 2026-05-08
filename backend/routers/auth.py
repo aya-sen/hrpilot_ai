@@ -45,6 +45,11 @@ def login(email: str, password: str, db: Session = Depends(get_db)):
         "last_name": employee.last_name,
         "email": employee.email,
         "role": employee.role,
+        "city": employee.city,
         "department": employee.department,
         "position": employee.position
     }
+
+
+
+ 

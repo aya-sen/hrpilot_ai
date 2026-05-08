@@ -63,10 +63,14 @@ def get_pending_for_manager(manager_id: int, db: Session = Depends(get_db)):
     return requests
 
 # ── Get pending requests for HR ───────────────────────────────────────────────
-@router.get("/pending-hr", response_model=List[LeaveRequestResponse])
-def get_pending_for_hr(db: Session = Depends(get_db)):
-    requests = db.query(models.LeaveRequest).filter(
-        models.LeaveRequest.status == "Pending_HR"
+@router.get("/pending-hr/{city}", response_model=List[LeaveRequestResponse])
+def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
+    requests = db.query(models.LeaveRequest).join(
+        models.Employee,
+        models.LeaveRequest.employee_id == models.Employee.employee_id
+    ).filter(
+        models.LeaveRequest.status == "Pending_HR",
+        models.Employee.city == city
     ).all()
     return requests
 
