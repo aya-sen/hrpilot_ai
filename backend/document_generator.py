@@ -1,5 +1,5 @@
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt , Inches
 from datetime import date
 import os
 
@@ -11,16 +11,13 @@ OUTPUT_DIR    = "files"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ── Helper: replace all placeholders in a document ───────────────────────────
-def fill_template(template_name: str, placeholders: dict, output_filename: str) -> str:
+def fill_template(template_name: str, placeholders: dict, 
+                  output_filename: str, city: str = None) -> str:
     
     template_path = os.path.join(TEMPLATES_DIR, template_name)
-    
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(f"Template not found: {template_path}")
-    
     doc = Document(template_path)
     
-    # Replace in paragraphs
+    # Replace placeholders in paragraphs
     for paragraph in doc.paragraphs:
         for key, value in placeholders.items():
             if key in paragraph.text:
@@ -28,7 +25,7 @@ def fill_template(template_name: str, placeholders: dict, output_filename: str) 
                     if key in run.text:
                         run.text = run.text.replace(key, str(value))
     
-    # Replace in tables (if any)
+    # Replace placeholders in tables
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -38,6 +35,10 @@ def fill_template(template_name: str, placeholders: dict, output_filename: str) 
                             for run in paragraph.runs:
                                 if key in run.text:
                                     run.text = run.text.replace(key, str(value))
+    
+    # ── Add signature based on city ───────────────────────────────────────────
+    if city:
+        add_signature(doc, city)
     
     output_path = os.path.join(OUTPUT_DIR, output_filename)
     doc.save(output_path)
@@ -107,7 +108,8 @@ def generate_attestation_travail(employee: dict) -> str:
         "{{ville}}":          employee['city'],
         "{{date_generation}}": format_date_french(today),
     }
-    filename = f"attestation_travail_{employee['employee_id']}_{today}.docx"
+    last_name = employee['last_name'].replace(' ', '_')
+    filename = f"attestation_travail_{last_name}_{employee['first_name']}_{today}.docx"
     return fill_template("attestation_travail.docx", placeholders, filename)
 
 
@@ -125,8 +127,9 @@ def generate_attestation_salaire(employee: dict, objet: str = "usage personnel")
         "{{ville}}":           employee['city'],
         "{{date_generation}}": format_date_french(today),
     }
-    filename = f"attestation_salaire_{employee['employee_id']}_{today}.docx"
-    return fill_template("attestation_salaire.docx", placeholders, filename)
+    last_name = employee['last_name'].replace(' ', '_')
+    filename = f"attestation_salaire_{last_name}_{employee['first_name']}_{today}.docx"
+    return fill_template("attestation_salaire.docx", placeholders, filename,city=employee['city'] )
 
 
 def generate_lettre_conge(employee: dict, leave_request: dict) -> str:
@@ -143,8 +146,9 @@ def generate_lettre_conge(employee: dict, leave_request: dict) -> str:
         "{{ville}}":           employee['city'],
         "{{date_generation}}": format_date_french(today),
     }
-    filename = f"lettre_conge_{employee['employee_id']}_{today}.docx"
-    return fill_template("lettre_conge.docx", placeholders, filename)
+    last_name = employee['last_name'].replace(' ', '_')
+    filename = f"lettre_conge_{last_name}_{employee['first_name']}_{today}.docx"
+    return fill_template("lettre_conge.docx", placeholders, filename , city=employee['city'])
 
 
 def generate_bulletin_paie(employee: dict, month: str, year: int) -> str:
@@ -174,8 +178,9 @@ def generate_bulletin_paie(employee: dict, month: str, year: int) -> str:
         "{{ville}}":           employee['city'],
         "{{date_generation}}": format_date_french(today),
     }
-    filename = f"bulletin_paie_{employee['employee_id']}_{month}_{year}.docx"
-    return fill_template("bulletin_paie.docx", placeholders, filename)
+    last_name = employee['last_name'].replace(' ', '_')
+    filename = f"bulletin_paie_{last_name}_{employee['first_name']}_{today}.docx"
+    return fill_template("bulletin_paie.docx", placeholders, filename , city=employee['city'])
 
 
 def generate_certificat_travail(employee: dict, end_date: str, reason: str = "fin de contrat") -> str:
@@ -192,5 +197,28 @@ def generate_certificat_travail(employee: dict, end_date: str, reason: str = "fi
         "{{ville}}":           employee['city'],
         "{{date_generation}}": format_date_french(today),
     }
-    filename = f"certificat_travail_{employee['employee_id']}_{today}.docx"
-    return fill_template("certificat_travail.docx", placeholders, filename)
+    last_name = employee['last_name'].replace(' ', '_')
+    filename = f"certificat_travail_{last_name}_{employee['first_name']}_{today}.docx"
+    return fill_template("certificat_travail.docx", placeholders, filename , city=employee['city'])
+
+
+
+def add_signature(doc, city: str):
+    """Add the HR signature image based on city"""
+    
+    signatures = {
+        "Casablanca": "documents/signatures/signature_casablanca.png",
+        "Rabat":      "documents/signatures/signature_rabat.png",
+        "Tanger":     "documents/signatures/signature_tanger.png",
+    }
+    
+    sig_path = signatures.get(city)
+    
+    if sig_path and os.path.exists(sig_path):
+        # Find the signature placeholder paragraph and replace it
+        for paragraph in doc.paragraphs:
+            if "[Signature et Cachet]" in paragraph.text:
+                paragraph.clear()
+                run = paragraph.add_run()
+                run.add_picture(sig_path, width=Inches(2.0))
+                break

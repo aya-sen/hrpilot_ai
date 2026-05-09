@@ -137,7 +137,7 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
             file_path = generate_lettre_conge(emp_dict, leave_dict)
             
         elif doc_type == "Bulletin de paie":
-            from datetime import date
+            
             today = date.today()
             months = ['Janvier','Février','Mars','Avril','Mai','Juin',
                      'Juillet','Août','Septembre','Octobre','Novembre','Décembre']
@@ -148,7 +148,7 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
             )
             
         elif doc_type == "Certificat de travail":
-            from datetime import date
+            
             file_path = generate_certificat_travail(
                 emp_dict,
                 end_date=str(date.today())
