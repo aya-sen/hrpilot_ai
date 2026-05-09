@@ -1,0 +1,196 @@
+from docx import Document
+from docx.shared import Pt
+from datetime import date
+import os
+
+# ── Template folder path ──────────────────────────────────────────────────────
+TEMPLATES_DIR = "documents/templates"
+OUTPUT_DIR    = "files"
+
+# Make sure output folder exists
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# ── Helper: replace all placeholders in a document ───────────────────────────
+def fill_template(template_name: str, placeholders: dict, output_filename: str) -> str:
+    
+    template_path = os.path.join(TEMPLATES_DIR, template_name)
+    
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(f"Template not found: {template_path}")
+    
+    doc = Document(template_path)
+    
+    # Replace in paragraphs
+    for paragraph in doc.paragraphs:
+        for key, value in placeholders.items():
+            if key in paragraph.text:
+                for run in paragraph.runs:
+                    if key in run.text:
+                        run.text = run.text.replace(key, str(value))
+    
+    # Replace in tables (if any)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for key, value in placeholders.items():
+                        if key in paragraph.text:
+                            for run in paragraph.runs:
+                                if key in run.text:
+                                    run.text = run.text.replace(key, str(value))
+    
+    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    doc.save(output_path)
+    return output_path
+
+# ── Number to French words (for salary) ──────────────────────────────────────
+def number_to_french(n: float) -> str:
+    units = ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf',
+             'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize',
+             'dix-sept', 'dix-huit', 'dix-neuf']
+    tens  = ['', '', 'vingt', 'trente', 'quarante', 'cinquante', 'soixante',
+             'soixante', 'quatre-vingt', 'quatre-vingt']
+    
+    n = int(n)
+    if n == 0: return 'zéro'
+    if n < 0:  return 'moins ' + number_to_french(-n)
+    
+    result = ''
+    if n >= 1000:
+        result += number_to_french(n // 1000) + ' mille '
+        n %= 1000
+    if n >= 100:
+        if n // 100 == 1:
+            result += 'cent '
+        else:
+            result += units[n // 100] + ' cent '
+        n %= 100
+    if n >= 20:
+        t = n // 10
+        u = n % 10
+        if t == 7 or t == 9:
+            result += tens[t] + '-' + units[10 + u] + ' '
+        elif u == 1 and t != 8:
+            result += tens[t] + ' et un '
+        elif u > 0:
+            result += tens[t] + '-' + units[u] + ' '
+        else:
+            result += tens[t] + ' '
+    elif n > 0:
+        result += units[n] + ' '
+    
+    return result.strip() + ' dirhams'
+
+# ── Format date in French ─────────────────────────────────────────────────────
+def format_date_french(d) -> str:
+    months = ['janvier','février','mars','avril','mai','juin',
+              'juillet','août','septembre','octobre','novembre','décembre']
+    if isinstance(d, str):
+        from datetime import datetime
+        d = datetime.strptime(d, '%Y-%m-%d').date()
+    return f"{d.day} {months[d.month - 1]} {d.year}"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DOCUMENT GENERATORS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_attestation_travail(employee: dict) -> str:
+    today = date.today()
+    placeholders = {
+        "{{nom_complet}}":    f"{employee['first_name']} {employee['last_name']}",
+        "{{genre}}":          employee['gender'],
+        "{{date_naissance}}": format_date_french(employee['birth_date']),
+        "{{departement}}":    employee['department'],
+        "{{poste}}":          employee['position'],
+        "{{type_contrat}}":   employee['contract_type'],
+        "{{date_embauche}}":  format_date_french(employee['hire_date']),
+        "{{ville}}":          employee['city'],
+        "{{date_generation}}": format_date_french(today),
+    }
+    filename = f"attestation_travail_{employee['employee_id']}_{today}.docx"
+    return fill_template("attestation_travail.docx", placeholders, filename)
+
+
+def generate_attestation_salaire(employee: dict, objet: str = "usage personnel") -> str:
+    today = date.today()
+    placeholders = {
+        "{{nom_complet}}":     f"{employee['first_name']} {employee['last_name']}",
+        "{{departement}}":     employee['department'],
+        "{{poste}}":           employee['position'],
+        "{{type_contrat}}":    employee['contract_type'],
+        "{{date_embauche}}":   format_date_french(employee['hire_date']),
+        "{{salaire}}":         f"{employee['salary']:,.2f}",
+        "{{salaire_lettres}}": number_to_french(employee['salary']),
+        "{{objet}}":           objet,
+        "{{ville}}":           employee['city'],
+        "{{date_generation}}": format_date_french(today),
+    }
+    filename = f"attestation_salaire_{employee['employee_id']}_{today}.docx"
+    return fill_template("attestation_salaire.docx", placeholders, filename)
+
+
+def generate_lettre_conge(employee: dict, leave_request: dict) -> str:
+    today = date.today()
+    placeholders = {
+        "{{nom_complet}}":     f"{employee['first_name']} {employee['last_name']}",
+        "{{departement}}":     employee['department'],
+        "{{poste}}":           employee['position'],
+        "{{type_conge}}":      leave_request['leave_type'],
+        "{{date_debut}}":      format_date_french(leave_request['start_date']),
+        "{{date_fin}}":        format_date_french(leave_request['end_date']),
+        "{{duree}}":           str(leave_request['duration_days']),
+        "{{solde_restant}}":   str(employee['leave_balance_days']),
+        "{{ville}}":           employee['city'],
+        "{{date_generation}}": format_date_french(today),
+    }
+    filename = f"lettre_conge_{employee['employee_id']}_{today}.docx"
+    return fill_template("lettre_conge.docx", placeholders, filename)
+
+
+def generate_bulletin_paie(employee: dict, month: str, year: int) -> str:
+    today = date.today()
+    
+    # Simple salary calculations
+    salaire_brut   = float(employee['salary'])
+    cnss_employee  = round(salaire_brut * 0.0448, 2)   # 4.48% CNSS employee part
+    amo_employee   = round(salaire_brut * 0.0226, 2)   # 2.26% AMO employee part  
+    ir_base        = salaire_brut - cnss_employee - amo_employee
+    ir              = round(ir_base * 0.15, 2)          # simplified IR estimate
+    salaire_net    = round(salaire_brut - cnss_employee - amo_employee - ir, 2)
+    
+    placeholders = {
+        "{{nom_complet}}":     f"{employee['first_name']} {employee['last_name']}",
+        "{{departement}}":     employee['department'],
+        "{{poste}}":           employee['position'],
+        "{{type_contrat}}":    employee['contract_type'],
+        "{{date_embauche}}":   format_date_french(employee['hire_date']),
+        "{{mois}}":            month,
+        "{{annee}}":           str(year),
+        "{{salaire_brut}}":    f"{salaire_brut:,.2f}",
+        "{{cnss}}":            f"{cnss_employee:,.2f}",
+        "{{amo}}":             f"{amo_employee:,.2f}",
+        "{{ir}}":              f"{ir:,.2f}",
+        "{{salaire_net}}":     f"{salaire_net:,.2f}",
+        "{{ville}}":           employee['city'],
+        "{{date_generation}}": format_date_french(today),
+    }
+    filename = f"bulletin_paie_{employee['employee_id']}_{month}_{year}.docx"
+    return fill_template("bulletin_paie.docx", placeholders, filename)
+
+
+def generate_certificat_travail(employee: dict, end_date: str, reason: str = "fin de contrat") -> str:
+    today = date.today()
+    placeholders = {
+        "{{nom_complet}}":     f"{employee['first_name']} {employee['last_name']}",
+        "{{genre}}":           employee['gender'],
+        "{{departement}}":     employee['department'],
+        "{{poste}}":           employee['position'],
+        "{{type_contrat}}":    employee['contract_type'],
+        "{{date_embauche}}":   format_date_french(employee['hire_date']),
+        "{{date_fin}}":        format_date_french(end_date),
+        "{{motif}}":           reason,
+        "{{ville}}":           employee['city'],
+        "{{date_generation}}": format_date_french(today),
+    }
+    filename = f"certificat_travail_{employee['employee_id']}_{today}.docx"
+    return fill_template("certificat_travail.docx", placeholders, filename)

@@ -6,6 +6,14 @@ import backend.models as models
 from typing import List
 from datetime import date
 
+from backend.document_generator import (
+    generate_attestation_travail,
+    generate_attestation_salaire,
+    generate_lettre_conge,
+    generate_bulletin_paie,
+    generate_certificat_travail
+)
+
 router = APIRouter(
     prefix="/documents",
     tags=["Document Requests"]
@@ -74,7 +82,6 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
     if not doc_request:
         raise HTTPException(status_code=404, detail="Document request not found")
     
-    # Get employee data
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == doc_request.employee_id
     ).first()
@@ -82,24 +89,92 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     
-    # Generate file path (actual generation comes in Week 3)
-    file_name = f"files/{doc_request.document_type.replace(' ', '_')}_{employee.employee_id}_{date.today()}.docx"
+    # Convert employee to dict
+    emp_dict = {
+        "employee_id":  employee.employee_id,
+        "first_name":   employee.first_name,
+        "last_name":    employee.last_name,
+        "gender":       employee.gender,
+        "birth_date":   employee.birth_date,
+        "department":   employee.department,
+        "position":     employee.position,
+        "contract_type": employee.contract_type,
+        "hire_date":    employee.hire_date,
+        "salary":       float(employee.salary),
+        "leave_balance_days": employee.leave_balance_days,
+        "city":         employee.city,
+    }
     
-    # Update request status and file path
-    doc_request.status               = "Generated"
-    doc_request.generated_file_path  = file_name
-    doc_request.delivery_date        = date.today()
+    # Generate based on document type
+    doc_type = doc_request.document_type
+    
+    try:
+        if doc_type == "Attestation de travail":
+            file_path = generate_attestation_travail(emp_dict)
+            
+        elif doc_type == "Attestation de salaire":
+            file_path = generate_attestation_salaire(
+                emp_dict,
+                objet=doc_request.purpose or "usage personnel"
+            )
+            
+        elif doc_type == "Lettre de congé":
+            # Find the related approved leave request
+            leave = db.query(models.LeaveRequest).filter(
+                models.LeaveRequest.employee_id == employee.employee_id,
+                models.LeaveRequest.status == "Approved"
+            ).order_by(models.LeaveRequest.request_id.desc()).first()
+            
+            if not leave:
+                raise HTTPException(status_code=404, detail="No approved leave found")
+            
+            leave_dict = {
+                "leave_type":    leave.leave_type,
+                "start_date":    leave.start_date,
+                "end_date":      leave.end_date,
+                "duration_days": leave.duration_days,
+            }
+            file_path = generate_lettre_conge(emp_dict, leave_dict)
+            
+        elif doc_type == "Bulletin de paie":
+            from datetime import date
+            today = date.today()
+            months = ['Janvier','Février','Mars','Avril','Mai','Juin',
+                     'Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+            file_path = generate_bulletin_paie(
+                emp_dict,
+                month=months[today.month - 1],
+                year=today.year
+            )
+            
+        elif doc_type == "Certificat de travail":
+            from datetime import date
+            file_path = generate_certificat_travail(
+                emp_dict,
+                end_date=str(date.today())
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Document type '{doc_type}' not supported"
+            )
+            
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    # Update DB
+    doc_request.status              = "Generated"
+    doc_request.generated_file_path = file_path
+    doc_request.delivery_date       = date.today()
     
     db.commit()
-    db.refresh(doc_request)
     
     return {
-        "message": "Document generated successfully",
-        "doc_request_id": doc_request_id,
-        "employee": f"{employee.first_name} {employee.last_name}",
-        "document_type": doc_request.document_type,
-        "file_path": file_name,
-        "status": "Generated"
+        "message":       "Document generated successfully",
+        "document_type": doc_type,
+        "employee":      f"{employee.first_name} {employee.last_name}",
+        "file_path":     file_path,
+        "status":        "Generated"
     }
 
 # ── Update status to Delivered ────────────────────────────────────────────────
