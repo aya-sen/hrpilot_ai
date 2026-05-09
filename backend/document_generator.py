@@ -15,6 +15,10 @@ def fill_template(template_name: str, placeholders: dict,
                   output_filename: str, city: str = None) -> str:
     
     template_path = os.path.join(TEMPLATES_DIR, template_name)
+
+    if not os.path.exists(template_path):
+       raise FileNotFoundError(f"Template not found: {template_path}")
+    
     doc = Document(template_path)
     
     # Replace placeholders in paragraphs
