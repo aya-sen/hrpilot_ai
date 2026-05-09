@@ -38,6 +38,8 @@ class LeaveRequest(Base):
     duration_days = Column(Integer , nullable=True)
     status = Column(String(20), nullable=False, default='Pending_Manager')
     submission_date = Column(Date, nullable=False)
+    employee_comment  = Column(Text, nullable=True)        
+    certificate_file_path = Column(String(255), nullable=True)
     manager_comment = Column(Text, nullable=True)
 
 

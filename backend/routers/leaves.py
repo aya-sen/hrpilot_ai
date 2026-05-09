@@ -5,6 +5,9 @@ from backend.schemas import LeaveRequestCreate, LeaveRequestResponse
 import backend.models as models
 from typing import List
 from datetime import date
+from fastapi import UploadFile, File
+import shutil
+import os
 
 router = APIRouter(
     prefix="/leaves",
@@ -15,7 +18,6 @@ router = APIRouter(
 @router.post("/submit", response_model=LeaveRequestResponse)
 def submit_leave(employee_id: int, request: LeaveRequestCreate, db: Session = Depends(get_db)):
     
-    # Get employee to find their manager
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == employee_id
     ).first()
@@ -30,14 +32,15 @@ def submit_leave(employee_id: int, request: LeaveRequestCreate, db: Session = De
         initial_status = "Pending_Manager"
     
     new_request = models.LeaveRequest(
-        employee_id     = employee_id,
-        manager_id      = employee.manager_id,
-        leave_type      = request.leave_type,
-        start_date      = request.start_date,
-        end_date        = request.end_date,
-        duration_days   = request.duration_days,
-        status          = initial_status,
-        submission_date = date.today()
+        employee_id      = employee_id,
+        manager_id       = employee.manager_id,
+        leave_type       = request.leave_type,
+        start_date       = request.start_date,
+        end_date         = request.end_date,
+        duration_days    = request.duration_days,
+        status           = initial_status,
+        submission_date  = date.today(),
+        employee_comment = request.employee_comment 
     )
     
     db.add(new_request)
@@ -160,4 +163,33 @@ def check_team_availability(department: str, start_date: date, end_date: date, d
         "absent_during_period": conflicts,
         "available": team_size - conflicts,
         "warning": conflicts >= 3
+    }
+
+
+# ── Upload medical certificate (Employee) ─────────────────────────────────
+@router.post("/{request_id}/upload-certificate")
+def upload_certificate(request_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    
+    leave = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.request_id == request_id
+    ).first()
+    
+    if not leave:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # Save file to files/certificates/ folder
+    os.makedirs("files/certificates", exist_ok=True)
+    file_path = f"files/certificates/certificate_{request_id}_{file.filename}"
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    # Update DB
+    leave.certificate_file_path = file_path
+    db.commit()
+    
+    return {
+        "message": "Certificate uploaded successfully",
+        "request_id": request_id,
+        "file_path": file_path
     }

@@ -36,6 +36,8 @@ class LeaveRequestResponse(BaseModel):
     duration_days: Optional[int] = None
     status: str
     submission_date: date
+    employee_comment:     Optional[str] = None     
+    certificate_file_path: Optional[str] = None
     manager_comment: Optional[str] = None
 
     class Config:
@@ -46,6 +48,7 @@ class LeaveRequestCreate(BaseModel):
     start_date: date
     end_date: date
     duration_days: int
+    employee_comment: Optional[str] = None
 
 # ── Document Request schemas ──────────────────────────────────────────────────
 class DocumentRequestResponse(BaseModel):
