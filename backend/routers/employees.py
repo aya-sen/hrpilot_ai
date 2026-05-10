@@ -91,3 +91,27 @@ def update_leave_balance(employee_id: int, days_to_deduct: int, db: Session = De
         "employee_id": employee_id,
         "new_balance": employee.leave_balance_days
     }
+
+
+import bcrypt as bcrypt_lib
+
+@router.put("/{employee_id}/change-password")
+def change_password(employee_id: int, old_password: str, 
+                    new_password: str, db: Session = Depends(get_db)):
+    employee = db.query(models.Employee).filter(
+        models.Employee.employee_id == employee_id
+    ).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Verify old password
+    if not bcrypt_lib.checkpw(old_password.encode('utf-8'),
+                               employee.password_hash.encode('utf-8')):
+        raise HTTPException(status_code=401, detail="Mot de passe actuel incorrect")
+    
+    # Hash new password
+    new_hash = bcrypt_lib.hashpw(new_password.encode('utf-8'),
+                                  bcrypt_lib.gensalt()).decode('utf-8')
+    employee.password_hash = new_hash
+    db.commit()
+    return {"message": "Mot de passe modifié avec succès"}

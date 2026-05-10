@@ -201,3 +201,32 @@ def confirm_leave_from_analysis(employee_id: int, leave_type: str,
         "employee_comment": comment
     })
     return response.json() if response.status_code == 200 else None
+
+
+def change_password(employee_id: int, old_password: str, new_password: str):
+    response = requests.put(
+        f"{BASE_URL}/employees/{employee_id}/change-password",
+        params={"old_password": old_password, "new_password": new_password}
+    )
+    return response.json() if response.status_code == 200 else None
+
+
+def get_gender_distribution():
+    response = requests.get(f"{BASE_URL}/dashboard/gender-distribution")
+    return response.json() if response.status_code == 200 else []
+
+def get_contract_distribution():
+    response = requests.get(f"{BASE_URL}/dashboard/contract-distribution")
+    return response.json() if response.status_code == 200 else []
+
+def get_turnover_rate():
+    response = requests.get(f"{BASE_URL}/dashboard/turnover-rate")
+    return response.json() if response.status_code == 200 else {}
+
+def get_avg_seniority():
+    response = requests.get(f"{BASE_URL}/dashboard/avg-seniority")
+    return response.json() if response.status_code == 200 else {}
+
+def get_absenteeism_rate(city: str):
+    response = requests.get(f"{BASE_URL}/dashboard/absenteeism-rate/{city}")
+    return response.json() if response.status_code == 200 else {}

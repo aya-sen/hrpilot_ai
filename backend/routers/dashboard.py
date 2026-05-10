@@ -319,3 +319,63 @@ def city_stats(city: str, db: Session = Depends(get_db)):
         "pending_leaves": pending_leaves,
         "pending_docs":   pending_docs
     }
+
+
+
+@router.get("/gender-distribution")
+def gender_distribution(db: Session = Depends(get_db)):
+    results = db.query(
+        models.Employee.gender,
+        func.count(models.Employee.employee_id).label("count")
+    ).group_by(models.Employee.gender).all()
+    return [{"gender": r.gender, "count": r.count} for r in results]
+
+
+@router.get("/contract-distribution")
+def contract_distribution(db: Session = Depends(get_db)):
+    results = db.query(
+        models.Employee.contract_type,
+        func.count(models.Employee.employee_id).label("count")
+    ).group_by(models.Employee.contract_type).all()
+    return [{"contract_type": r.contract_type, "count": r.count} for r in results]
+
+
+@router.get("/turnover-rate")
+def turnover_rate(db: Session = Depends(get_db)):
+    total     = db.query(models.Employee).count()
+    resigned  = db.query(models.Employee).filter(
+        models.Employee.status == "Resigned"
+    ).count()
+    rate = round((resigned / total * 100), 1) if total > 0 else 0
+    return {"total": total, "resigned": resigned, "turnover_rate": rate}
+
+
+@router.get("/avg-seniority")
+def avg_seniority(db: Session = Depends(get_db)):
+    employees = db.query(models.Employee).filter(
+        models.Employee.hire_date != None
+    ).all()
+    if not employees:
+        return {"avg_years": 0}
+    today = date.today()
+    total_days = sum((today - emp.hire_date).days for emp in employees)
+    avg_years  = round(total_days / len(employees) / 365, 1)
+    return {"avg_years": avg_years, "total_employees": len(employees)}
+
+
+@router.get("/absenteeism-rate/{city}")
+def absenteeism_rate(city: str, db: Session = Depends(get_db)):
+    total_city = db.query(models.Employee).filter(
+        models.Employee.city == city
+    ).count()
+    on_leave = db.query(models.LeaveRequest).join(
+        models.Employee,
+        models.LeaveRequest.employee_id == models.Employee.employee_id
+    ).filter(
+        models.Employee.city == city,
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date <= date.today(),
+        models.LeaveRequest.end_date >= date.today()
+    ).count()
+    rate = round((on_leave / total_city * 100), 1) if total_city > 0 else 0
+    return {"city": city, "total": total_city, "on_leave": on_leave, "rate": rate}
