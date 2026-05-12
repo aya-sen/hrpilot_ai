@@ -4,7 +4,6 @@ import streamlit as st
 from utils.api import login
 
 
-
 # --- FontAwesome ---
 st.markdown("""
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -48,7 +47,7 @@ def show_login():
     with left:
     # Utiliser dedent permet de garder ton code propre tout en supprimant 
     # les espaces invisibles qui font bugger Streamlit  
-        
+
         content = dedent("""
             <div class="left-box" style="
                 background: linear-gradient(180deg, #2D5CFE 0%, #1A3FB5 100%);
@@ -56,7 +55,7 @@ def show_login():
                 padding: 80px 40px;
                 color: white !important;
             ">
-                <h2 style="color: white !important;">HRPilot AI</h2>
+                <h1 style="color: white !important;">HRPilot AI</h1>
                 <p style="color: white !important;">Système de gestion RH intelligent</p>
                 <div style="margin-top: 50px;">
                     <div style="font-weight: bold; margin-bottom: 10px;color: white !important;"><i class="fa-solid fa-robot"></i></br> Assistant IA Conversationnel</div>

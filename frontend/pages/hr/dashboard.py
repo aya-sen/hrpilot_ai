@@ -11,17 +11,45 @@ from utils.api import (
 )
 
 def show_dashboard():
-    city = st.session_state.city
+    
+    user_city = st.session_state.city
     st.title("📊 Tableau de Bord RH")
-    st.markdown(f"Données filtrées pour l'agence de **{city}**")
+    # ── City selector — only for Casablanca (DRH) ─────────────────────────
+    if user_city == "Casablanca":
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("#### Direction des Ressources Humaines")
+        with col2:
+            city_filter = st.selectbox(
+                "Vue",
+                ["Casablanca", "Rabat", "Tanger", "Toutes les agences"],
+                index=0
+            )
+        city = "all" if city_filter == "Toutes les agences" else city_filter
+        label = city_filter
+    else:
+        city  = user_city
+        label = user_city
+        st.markdown(f"#### Agence de **{label}**")
+
     st.divider()
 
     # ── KPIs Row 1 ────────────────────────────────────────────────────────────
-    kpis        = get_kpis()
-    city_stats  = get_city_stats(city)
-    turnover    = get_turnover_rate()
-    seniority   = get_avg_seniority()
-    absenteeism = get_absenteeism_rate(city)
+    kpis          = get_kpis(city)
+    city_stats    = get_city_stats(city) 
+    turnover      = get_turnover_rate(city)
+    seniority     = get_avg_seniority(city)
+    absenteeism   = get_absenteeism_rate(city) 
+    alerts_response   = get_department_alerts(city)
+    dept_data     = get_leaves_by_department(city)
+    type_data     = get_leaves_by_type(city)
+    status_data   = get_leaves_by_status(city)
+    monthly       = get_monthly_trends(city)
+    doc_data      = get_documents_by_type(city)
+    burnout       = get_burnout_risk(city)
+    predictions   = get_absence_predictions(city)
+    gender_data   = get_gender_distribution(city)
+    contract_data = get_contract_distribution(city)
 
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("👥 Employés (ville)",   city_stats.get("total_employees", 0))
@@ -37,23 +65,31 @@ def show_dashboard():
 
     st.divider()
 
-    # ── Alerts ────────────────────────────────────────────────────────────────
-    alerts_data = get_department_alerts()
-    alerts = alerts_data.get("alerts", [])
-    if alerts:
-        st.subheader("🚨 Alertes de sous-effectif")
-        for alert in alerts:
-            if alert["alert_level"] == "Critical":
-                st.error(alert["message"])
-            else:
-                st.warning(alert["message"])
-        st.divider()
+    # ── Alerts ──────────────────────────────────────
+
+    # On vérifie si la réponse contient bien la clé "alerts"
+    if alerts_response and "alerts" in alerts_response:
+        alerts = alerts_response["alerts"]
+        
+        if alerts:
+            st.subheader("🚨 Alertes de sous-effectif")
+            for alert in alerts:
+                # On affiche un message différent selon le niveau (Critical ou Warning)
+                if alert.get("alert_level") == "Critical":
+                    st.error(alert["message"])
+                else:
+                    st.warning(alert["message"])
+            st.divider()
+        else:
+            # Optionnel : décommenter pour débugger et voir si la liste est juste vide
+            # st.write("Aucune alerte de sous-effectif pour le moment.")
+            pass
 
     # ── Charts Row 1 ──────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📈 Congés par département")
-        dept_data = get_leaves_by_department()
+        dept_data = get_leaves_by_department(city)
         if dept_data:
             df  = pd.DataFrame(dept_data)
             fig = px.bar(df, x="department", y="total_leaves",
@@ -65,18 +101,22 @@ def show_dashboard():
 
     with col2:
         st.subheader("🥧 Types de congés")
-        type_data = get_leaves_by_type()
-        if type_data:
-            df  = pd.DataFrame(type_data)
+        type_data = get_leaves_by_type(city)
+        
+        if type_data and len(type_data) > 0: # Vérifie que la liste n'est pas vide
+            df = pd.DataFrame(type_data)
             fig = px.pie(df, values="count", names="leave_type", hole=0.4)
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20))
+            # REMPLACER use_container_width PAR width="stretch"
+            st.plotly_chart(fig, width="stretch")
+        else:
+            st.info("Aucune donnée de congé disponible pour cette sélection.")
 
     # ── Charts Row 2 ──────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("⚤ Répartition Homme / Femme")
-        gender_data = get_gender_distribution()
+        gender_data = get_gender_distribution(city)
         if gender_data:
             df  = pd.DataFrame(gender_data)
             fig = px.pie(df, values="count", names="gender",
@@ -89,7 +129,7 @@ def show_dashboard():
 
     with col2:
         st.subheader("📋 Types de contrats")
-        contract_data = get_contract_distribution()
+        contract_data = get_contract_distribution(city)
         if contract_data:
             df  = pd.DataFrame(contract_data)
             fig = px.pie(df, values="count", names="contract_type",
@@ -102,7 +142,7 @@ def show_dashboard():
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📅 Tendances mensuelles des demandes")
-        monthly = get_monthly_trends()
+        monthly = get_monthly_trends(city)
         if monthly:
             df  = pd.DataFrame(monthly)
             fig = px.line(df, x="period", y="count", markers=True,
@@ -112,7 +152,7 @@ def show_dashboard():
 
     with col2:
         st.subheader("📊 Statut des demandes")
-        status_data = get_leaves_by_status()
+        status_data = get_leaves_by_status(city)
         if status_data:
             df = pd.DataFrame(status_data)
             colors = {"Approved": "#2ecc71", "Rejected": "#e74c3c",
@@ -125,7 +165,7 @@ def show_dashboard():
 
     # ── Documents ─────────────────────────────────────────────────────────────
     st.subheader("📄 Types de documents demandés")
-    doc_data = get_documents_by_type()
+    doc_data = get_documents_by_type(city)
     if doc_data:
         df  = pd.DataFrame(doc_data)
         fig = px.bar(df, x="document_type", y="count",
@@ -138,7 +178,7 @@ def show_dashboard():
 
     # ── Predictions ───────────────────────────────────────────────────────────
     st.subheader("🔮 Prédictions d'absences")
-    predictions = get_absence_predictions()
+    predictions = get_absence_predictions(city)
     if predictions.get("peak_month"):
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -157,14 +197,24 @@ def show_dashboard():
 
     # ── Burnout Risk ──────────────────────────────────────────────────────────
     st.subheader("⚠️ Risque de Burnout")
-    burnout  = get_burnout_risk()
-    at_risk  = burnout.get("employees", [])
-    city_risk = [e for e in at_risk if e["city"] == city]
+    burnout = get_burnout_risk(city)
+    at_risk = burnout.get("employees", [])
+
+    # CORRECTION ICI : Si city est "all", on prend tout le monde. 
+    # Sinon, on filtre par ville.
+    if city == "all":
+        city_risk = at_risk
+        display_name = "toutes les agences"
+    else:
+        city_risk = [e for e in at_risk if e["city"] == city]
+        display_name = city
 
     if city_risk:
-        st.warning(f"**{len(city_risk)} employé(s)** de {city} n'ont pas pris de congé depuis 6+ mois.")
+        st.warning(f"**{len(city_risk)} employé(s)** au total ({display_name}) n'ont pas pris de congé depuis 6+ mois.")
         for emp in city_risk:
-            with st.expander(f"👤 {emp['name']} — {emp['department']}"):
+            # On ajoute la ville dans le titre de l'expander pour la vue globale
+            title_city = f" ({emp['city']})" if city == "all" else ""
+            with st.expander(f"👤 {emp['name']} — {emp['department']}{title_city}"):
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"**Dernier congé:** {emp['last_leave']}")
@@ -174,4 +224,4 @@ def show_dashboard():
                     st.markdown(f"**Risque:** {level}")
                 st.info(emp["recommendation"])
     else:
-        st.success(f"✅ Aucun risque de burnout détecté pour {city}.")
+        st.success(f"✅ Aucun risque de burnout détecté pour {display_name}.")

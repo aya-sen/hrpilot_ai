@@ -47,9 +47,12 @@ else:
     # ── Sidebar navigation ────────────────────────────────────────────────────
     with st.sidebar:
         BASE_DIR = os.path.dirname(__file__)
-        logo_path = os.path.join(BASE_DIR, "hrpilot_log.png")
+        logo_path = os.path.join(BASE_DIR, "logo.png")
 
-        st.image(logo_path, width=220)
+        col1, col2, col3 = st.columns([0.5,4,0.5])
+
+        with col2:
+             st.image(logo_path, width=240)
         #st.title("HRPilot AI")
         st.markdown(f"👤 **{st.session_state.first_name} {st.session_state.last_name}**")
         st.markdown(f"🏢 **{role}**")
