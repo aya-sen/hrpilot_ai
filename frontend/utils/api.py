@@ -186,6 +186,27 @@ def get_leaves_by_type(city):
     response = requests.get(f"{BASE_URL}/dashboard/leaves-by-type/{city}")
     return response.json() if response.status_code == 200 else []
 
+
+def get_gender_distribution(city: str):
+    response = requests.get(f"{BASE_URL}/dashboard/gender-distribution/{city}")
+    return response.json() if response.status_code == 200 else []
+
+def get_contract_distribution(city: str):
+    response = requests.get(f"{BASE_URL}/dashboard/contract-distribution/{city}")
+    return response.json() if response.status_code == 200 else []
+
+def get_turnover_rate(city: str = "all"):
+    response = requests.get(f"{BASE_URL}/dashboard/turnover-rate/{city}")
+    return response.json() if response.status_code == 200 else {}
+
+def get_avg_seniority(city: str = "all"):
+    response = requests.get(f"{BASE_URL}/dashboard/avg-seniority/{city}")
+    return response.json() if response.status_code == 200 else {}
+
+def get_absenteeism_rate(city: str):
+    response = requests.get(f"{BASE_URL}/dashboard/absenteeism-rate/{city}")
+    return response.json() if response.status_code == 200 else {}
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DOCUMENT ANALYSIS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -218,23 +239,3 @@ def change_password(employee_id: int, old_password: str, new_password: str):
     )
     return response.json() if response.status_code == 200 else None
 
-
-def get_gender_distribution(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/gender-distribution/{city}")
-    return response.json() if response.status_code == 200 else []
-
-def get_contract_distribution(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/contract-distribution/{city}")
-    return response.json() if response.status_code == 200 else []
-
-def get_turnover_rate(city: str = "all"):
-    response = requests.get(f"{BASE_URL}/dashboard/turnover-rate/{city}")
-    return response.json() if response.status_code == 200 else {}
-
-def get_avg_seniority(city: str = "all"):
-    response = requests.get(f"{BASE_URL}/dashboard/avg-seniority/{city}")
-    return response.json() if response.status_code == 200 else {}
-
-def get_absenteeism_rate(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/absenteeism-rate/{city}")
-    return response.json() if response.status_code == 200 else {}
