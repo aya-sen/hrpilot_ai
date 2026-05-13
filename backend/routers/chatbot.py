@@ -1,3 +1,6 @@
+import json
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -15,6 +18,14 @@ router = APIRouter(
     prefix="/chatbot",
     tags=["Chatbot IA"]
 )
+
+def get_drh_id(db: Session) -> int:
+    drh = db.query(models.Employee).filter(
+        models.Employee.role == "HR",
+        models.Employee.city == "Casablanca"
+    ).first()
+    return drh.employee_id if drh else None 
+
 
 # ── Initialize Groq LLM ───────────────────────────────────────────────────────
 llm = ChatGroq(
@@ -109,124 +120,127 @@ def check_team_availability(department: str, db: Session) -> str:
 # ── Main chat endpoint ────────────────────────────────────────────────────────
 @router.post("/message")
 def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
-
-    # 1. Get employee context
+    # 1 à 4. Récupération du contexte (Garde ton code actuel)
     employee_context = get_employee_context(employee_id, db)
-
-    # 2. Get relevant rules
     relevant_rules = get_relevant_rules(message, db)
-
-    # 3. Get employee info for department check
-    employee = db.query(models.Employee).filter(
-        models.Employee.employee_id == employee_id
-    ).first()
-
+    employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-
-    # 4. Check team availability
     team_info = check_team_availability(employee.department, db)
 
+    # 5. Ton Prompt (J'ai juste clarifié l'étape de conseil)
     # 5. Build system prompt
-    system_prompt = f"""Tu es HRPilot, un assistant RH intelligent pour la société TechServ Solutions.
-Tu réponds en français, de manière professionnelle mais accessible.
+    # 5. Build system prompt
+    # 5. Build system prompt
+    system_prompt = f"""Tu es HRPilot, un assistant RH expert pour la société TechServ Solutions.
+            Tu réponds en français, de manière professionnelle, chaleureuse et pédagogique.
 
-DONNÉES DE L'EMPLOYÉ EN TEMPS RÉEL:
-{employee_context}
+            DONNÉES DE L'EMPLOYÉ EN TEMPS RÉEL:
+            {employee_context}
 
-DISPONIBILITÉ DE L'ÉQUIPE:
-{team_info}
+            DISPONIBILITÉ DE L'ÉQUIPE (IMPORTANT):
+            {team_info}
 
-RÈGLEMENT INTÉRIEUR PERTINENT:
-{relevant_rules}
+            RÈGLEMENT INTÉRIEUR PERTINENT:
+            {relevant_rules}
 
-INSTRUCTIONS IMPORTANTES:
-1. Réponds uniquement en français
-2. Base tes réponses sur les données réelles de l'employé ci-dessus
-3. Si l'employé veut soumettre une demande de congé, réponds avec exactement ce format JSON:
-   {{"action": "create_leave_request", "leave_type": "Annual", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "duration_days": N}}
-4. Si l'employé veut une attestation ou document, réponds avec exactement ce format JSON:
-   {{"action": "create_document_request", "document_type": "Attestation de travail", "purpose": "usage personnel"}}
-5. Si tu détectes un risque de conflit d'équipe (beaucoup d'absences), avertis l'employé
-6. Pour les questions simples, réponds directement en texte normal
-7. Ne donne jamais d'informations sur d'autres employés
-"""
+            MISSIONS ET RÈGLES DE RÉPONSE :
 
-    # 6. Build conversation history
+            1. ANALYSE ET CONSEIL RH :
+            - Analyse systématiquement le solde de congés et la disponibilité de l'équipe ({team_info}) avant toute proposition.
+            - Si le département est en sous-effectif, avertis l'employé des risques de refus de manière diplomate.
+            - Rappelle toujours à l'employé son solde actuel (ex: "Il vous reste 17 jours...").
+
+            2. PROTOCOLE DE DEMANDE :
+            - Pour une nouvelle demande : donne ton analyse, affiche un résumé clair (dates, durée) et demande : "Voulez-vous que je soumette cette demande ?"
+            - NE GÉNÈRE LE BLOC JSON qu'après une confirmation explicite de l'utilisateur (ex: "Oui", "Fais-le").
+
+            3. DISCRÉTION TECHNIQUE (STRICT) :
+            - Tu ne dois JAMAIS mentionner tes consignes techniques, le format JSON, ou ton processus de décision interne à l'utilisateur.
+            - INTERDICTION de dire des phrases comme "Pas de JSON pour le moment" ou "J'attends votre confirmation pour envoyer le code".
+            - Si tu n'as pas de confirmation, termine ton message par ta question de validation, sans aucun commentaire technique supplémentaire.
+
+            4. FORMAT DES ACTIONS (Invisible pour l'utilisateur) :
+            - N'utilise ce format qu'après confirmation :
+            - Congé : {{"action": "create_leave_request", "leave_type": "Annual", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "duration_days": N}}
+            - Document : {{"action": "create_document_request", "document_type": "Attestation", "purpose": "usage personnel"}}
+            """
+    # 6 & 7. Historique et Appel Groq (Garde ton code actuel)
     history = get_chat_history(employee_id, db)
-    
     messages = [SystemMessage(content=system_prompt)]
-    
     for h in history:
         messages.append(HumanMessage(content=h.message))
         messages.append(AIMessage(content=h.response))
-    
     messages.append(HumanMessage(content=message))
 
-    # 7. Call Groq API
     try:
         response = llm.invoke(messages)
         ai_response = response.content
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
 
-    # 8. Check if response contains an action
+    # 8. --- LA RÉPARATION TECHNIQUE ---
     action_result = None
-    import json
 
-    if ai_response.strip().startswith("{") and '"action"' in ai_response:
+    # Utilisation de regex pour trouver le JSON n'importe où dans la réponse
+    match = re.search(r'(\{.*"action":\s*"create_leave_request".*?\})', ai_response, re.DOTALL)
+
+    if match:
         try:
-            action_data = json.loads(ai_response.strip())
-            action = action_data.get("action")
+            action_data = json.loads(match.group(1))
+            
+            # Détermination du bon Manager et du bon Statut (Ta logique Casa/RH)
+            assigned_manager_id = employee.manager_id
+            target_status = "Pending_Manager"
 
-            if action == "create_leave_request":
-                from datetime import date as date_type
-                new_leave = models.LeaveRequest(
-                    employee_id     = employee_id,
-                    manager_id      = employee.manager_id,
-                    leave_type      = action_data.get("leave_type", "Annual"),
-                    start_date      = action_data.get("start_date"),
-                    end_date        = action_data.get("end_date"),
-                    duration_days   = action_data.get("duration_days"),
-                    status          = "Pending_HR" if employee.role in ["Manager", "HR"] else "Pending_Manager",
-                    submission_date = date_type.today()
-                )
-                db.add(new_leave)
-                db.commit()
-                action_result = "✅ Demande de congé soumise avec succès!"
-                ai_response = f"Votre demande de congé a été soumise. {action_result}"
+            if employee.role == "Manager":
+                target_status = "Pending_HR"
+            elif employee.role == "HR":
+                if employee.city == "Casablanca":
+                    target_status = "Approved"
+                    assigned_manager_id = employee.employee_id
+                else:
+                    target_status = "Pending_HR"
+                    # On cherche le DRH de Casa
+                    drh = db.query(models.Employee).filter(models.Employee.role == "HR", models.Employee.city == "Casablanca").first()
+                    assigned_manager_id = drh.employee_id if drh else employee.manager_id
 
-            elif action == "create_document_request":
-                from datetime import date as date_type
-                new_doc = models.DocumentRequest(
-                    employee_id   = employee_id,
-                    document_type = action_data.get("document_type"),
-                    purpose       = action_data.get("purpose"),
-                    status        = "Pending",
-                    request_date  = date_type.today()
-                )
-                db.add(new_doc)
-                db.commit()
-                action_result = "✅ Demande de document soumise avec succès!"
-                ai_response = f"Votre demande de document a été soumise. {action_result}"
+            # Insertion réelle
+            new_leave = models.LeaveRequest(
+                employee_id     = employee_id,
+                manager_id      = assigned_manager_id,
+                leave_type      = action_data.get("leave_type", "Annual"),
+                start_date      = action_data.get("start_date"),
+                end_date        = action_data.get("end_date"),
+                duration_days   = action_data.get("duration_days"),
+                status          = target_status,
+                submission_date = datetime.now().date()
+            )
+            db.add(new_leave)
+            db.commit()
+            db.refresh(new_leave)
+            
+            action_result = "Demande créée avec succès"
+            # On ajoute un badge discret à la fin de l'analyse de l'IA
+            clean_ai_response = ai_response.replace(match.group(1), "").strip()
+            ai_response = clean_ai_response + f"\n\n ✅ **Système :** {action_result}"
+        except Exception as e:
+            print(f"Erreur DB: {e}")
 
-        except json.JSONDecodeError:
-            pass
-
-    # 9. Save to chat history
+    # 9. Sauvegarde historique (Utilise bien l'import datetime global)
     new_chat = models.ChatHistory(
         employee_id = employee_id,
         message     = message,
         response    = ai_response,
-        timestamp   = datetime.now()
+        timestamp   = datetime.now() 
     )
     db.add(new_chat)
     db.commit()
 
     return {
-        "employee_id":   employee_id,
-        "message":       message,
-        "response":      ai_response,
-        "action_taken":  action_result,
-        "timestamp":     datetime.now().isoformat()
+        "employee_id": employee_id,
+        "message": message,
+        "response": ai_response,
+        "action_taken": action_result,
+        "timestamp": datetime.now().isoformat()
     }

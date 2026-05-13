@@ -13,6 +13,14 @@ router = APIRouter(
     prefix="/leaves",
     tags=["Leave Requests"]
 )
+# 1. Place la fonction utilitaire juste avant ta route
+def get_drh_id(db: Session) -> int:
+    drh = db.query(models.Employee).filter(
+        models.Employee.role == "HR",
+        models.Employee.city == "Casablanca"
+    ).first()
+    return drh.employee_id if drh else None
+
 
 # ── Submit a leave request (Employee) ────────────────────────────────────────
 @router.post("/submit", response_model=LeaveRequestResponse)
@@ -25,15 +33,33 @@ def submit_leave(employee_id: int, request: LeaveRequestCreate, db: Session = De
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     
-    # If manager or HR → skip manager step
-    if employee.role in ["Manager", "HR"]:
-        initial_status = "Pending_HR"
-    else:
+    # --- NOUVELLE LOGIQUE DE WORKFLOW ---
+    if employee.role == "Employee":
         initial_status = "Pending_Manager"
-    
+        assigned_manager = employee.manager_id
+
+    elif employee.role == "Manager":
+        initial_status = "Pending_HR"
+        assigned_manager = employee.manager_id # Souvent NULL pour un Manager
+
+    elif employee.role == "HR" and employee.city != "Casablanca":
+        # HR de Rabat/Tanger -> Envoyé au DRH de Casa
+        initial_status = "Pending_HR"
+        assigned_manager = get_drh_id(db)
+
+    elif employee.role == "HR" and employee.city == "Casablanca":
+        # Le DRH de Casa s'auto-approuve
+        initial_status = "Approved"
+        assigned_manager = employee_id
+    else:
+        # Cas par défaut au cas où
+        initial_status = "Pending_HR"
+        assigned_manager = None
+
+    # --- CRÉATION DE LA REQUÊTE ---
     new_request = models.LeaveRequest(
         employee_id      = employee_id,
-        manager_id       = employee.manager_id,
+        manager_id       = assigned_manager, # On utilise notre nouvelle variable
         leave_type       = request.leave_type,
         start_date       = request.start_date,
         end_date         = request.end_date,
@@ -47,7 +73,6 @@ def submit_leave(employee_id: int, request: LeaveRequestCreate, db: Session = De
     db.commit()
     db.refresh(new_request)
     return new_request
-
 # ── Get my requests (Employee) ────────────────────────────────────────────────
 @router.get("/my-requests/{employee_id}", response_model=List[LeaveRequestResponse])
 def get_my_requests(employee_id: int, db: Session = Depends(get_db)):
@@ -193,3 +218,5 @@ def upload_certificate(request_id: int, file: UploadFile = File(...), db: Sessio
         "request_id": request_id,
         "file_path": file_path
     }
+
+
