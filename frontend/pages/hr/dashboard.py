@@ -11,9 +11,18 @@ from utils.api import (
 )
 
 def show_dashboard():
+
+    st.markdown("""
+        <style>
+        h1 { color: #000080 !important; }
+        [data-testid="stMetricValue"] { color: #000080 !important; }
+        </style>
+    """, unsafe_allow_html=True)
     
     user_city = st.session_state.city
-    st.title("📊 Tableau de Bord RH")
+    st.title(":material/analytics: Tableau de Bord RH")
+    st.caption(f"Statistiques actuelles pour la ville de **{user_city}**")
+    st.divider()
     # ── City selector — only for Casablanca (DRH) ─────────────────────────
     if user_city == "Casablanca":
         col1, col2 = st.columns([3, 1])
@@ -51,17 +60,57 @@ def show_dashboard():
     gender_data   = get_gender_distribution(city)
     contract_data = get_contract_distribution(city)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("👥 Employés (ville)",   city_stats.get("total_employees", 0))
-    col2.metric("✅ Actifs",             city_stats.get("active", 0))
-    col3.metric("⏳ Congés en attente",  city_stats.get("pending_leaves", 0))
-    col4.metric("📄 Docs en attente",    city_stats.get("pending_docs", 0))
-    col5.metric("🏖️ Absentéisme",        f"{absenteeism.get('rate', 0)}%")
 
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric(
+            label=":material/location_city: Employés (ville)",
+            value=f"{city_stats.get("total_employees", 0)}"
+        )
+
+    with col2:
+        st.metric(
+            label=":material/check_circle: Actifs",
+            value=f"{city_stats.get("active", 0)}"
+        )
+
+    with col3:
+        st.metric(
+            label=":material/hourglass_empty: Congés en attente",
+            value=f"{city_stats.get("pending_leaves", 0)}"
+        )
+
+    with col4:
+        st.metric(
+            label=":material/description: Docs en attente",
+            value=f"{city_stats.get("pending_docs", 0)}"
+        )
+
+    with col5:
+        st.metric(
+            label=":material/person_off: Absentéisme",
+            value=f"{absenteeism.get('rate', 0)} %"
+        )
+  
     col1, col2, col3 = st.columns(3)
-    col1.metric("🔄 Taux de turnover",   f"{turnover.get('turnover_rate', 0)}%")
-    col2.metric("📅 Ancienneté moyenne", f"{seniority.get('avg_years', 0)} ans")
-    col3.metric("👥 Total entreprise",   kpis.get("total_employees", 0))
+
+    with col1:
+        st.metric(
+            label=":material/sync_alt: Taux de turnover",
+            value=f"{turnover.get('turnover_rate', 0)} %"
+        )
+    
+    with col2:
+        st.metric(
+            label=":material/history: Ancienneté moyenne",
+            value=f"{seniority.get('avg_years', 0)} ans"
+        )
+    with col3:
+        st.metric(
+            label=":material/corporate_fare: Total entreprise",
+            value=f"{kpis.get('total_employees', 0)}"
+        )
 
     st.divider()
 
@@ -72,8 +121,9 @@ def show_dashboard():
         alerts = alerts_response["alerts"]
         
         if alerts:
-            st.subheader("🚨 Alertes de sous-effectif")
+            st.subheader(":material/report_problem: Alertes de sous-effectif")
             for alert in alerts:
+                
                 # On affiche un message différent selon le niveau (Critical ou Warning)
                 if alert.get("alert_level") == "Critical":
                     st.error(alert["message"])
@@ -88,7 +138,7 @@ def show_dashboard():
     # ── Charts Row 1 ──────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("📈 Congés par département")
+        st.subheader(":material/leaderboard: Congés par département")
         dept_data = get_leaves_by_department(city)
         if dept_data:
             df  = pd.DataFrame(dept_data)
@@ -100,7 +150,8 @@ def show_dashboard():
             st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        st.subheader("🥧 Types de congés")
+        st.subheader(":material/pie_chart: Types de congés")
+
         type_data = get_leaves_by_type(city)
         
         if type_data and len(type_data) > 0: # Vérifie que la liste n'est pas vide
@@ -128,7 +179,7 @@ def show_dashboard():
             st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        st.subheader("📋 Types de contrats")
+        st.subheader(":material/assignment: Types de contrats")
         contract_data = get_contract_distribution(city)
         if contract_data:
             df  = pd.DataFrame(contract_data)
@@ -141,7 +192,7 @@ def show_dashboard():
     # ── Charts Row 3 ──────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("📅 Tendances mensuelles des demandes")
+        st.subheader(":material/show_chart: Tendances mensuelles des demandes")
         monthly = get_monthly_trends(city)
         if monthly:
             df  = pd.DataFrame(monthly)
@@ -151,7 +202,7 @@ def show_dashboard():
             st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        st.subheader("📊 Statut des demandes")
+        st.subheader(":material/donut_large: Statut des demandes")
         status_data = get_leaves_by_status(city)
         if status_data:
             df = pd.DataFrame(status_data)
@@ -164,7 +215,7 @@ def show_dashboard():
             st.plotly_chart(fig, use_container_width=True)
 
     # ── Documents ─────────────────────────────────────────────────────────────
-    st.subheader("📄 Types de documents demandés")
+    st.subheader(":material/folder_open: Types de documents demandés")
     doc_data = get_documents_by_type(city)
     if doc_data:
         df  = pd.DataFrame(doc_data)
@@ -177,7 +228,7 @@ def show_dashboard():
     st.divider()
 
     # ── Predictions ───────────────────────────────────────────────────────────
-    st.subheader("🔮 Prédictions d'absences")
+    st.subheader(":material/auto_graph: Prédictions d'absences")
     predictions = get_absence_predictions(city)
     if predictions.get("peak_month"):
         col1, col2 = st.columns([2, 1])
@@ -191,12 +242,12 @@ def show_dashboard():
                 fig.update_layout(height=250)
                 st.plotly_chart(fig, use_container_width=True)
         with col2:
-            st.info(f"📌 {predictions.get('prediction')}")
+            st.info(f" {predictions.get('prediction')}")
 
     st.divider()
 
     # ── Burnout Risk ──────────────────────────────────────────────────────────
-    st.subheader("⚠️ Risque de Burnout")
+    st.subheader(":material/psychology_alt: Risque de Burnout")
     burnout = get_burnout_risk(city)
     at_risk = burnout.get("employees", [])
 
@@ -224,4 +275,4 @@ def show_dashboard():
                     st.markdown(f"**Risque:** {level}")
                 st.info(emp["recommendation"])
     else:
-        st.success(f"✅ Aucun risque de burnout détecté pour {display_name}.")
+        st.success(f"Aucun risque de burnout détecté pour {display_name}.")
