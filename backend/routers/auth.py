@@ -37,6 +37,12 @@ def login(email: str, password: str, db: Session = Depends(get_db)):
             detail="Incorrect password"
         )
     
+    if employee.status == "Resigned":
+        raise HTTPException(
+            status_code=403,
+            detail="Ce compte est désactivé. Contactez le service RH."
+        )
+    
     # 4. Return employee info
     return {
         "message": "Login successful",

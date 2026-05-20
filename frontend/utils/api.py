@@ -207,6 +207,17 @@ def get_absenteeism_rate(city: str):
     response = requests.get(f"{BASE_URL}/dashboard/absenteeism-rate/{city}")
     return response.json() if response.status_code == 200 else {}
 
+def add_employee(data: dict):
+    response = requests.post(f"{BASE_URL}/employees/add", json=data)
+    return response.json() if response.status_code == 200 else None
+
+def update_employee(employee_id: int, data: dict):
+    response = requests.put(
+        f"{BASE_URL}/employees/{employee_id}/update",
+        json=data
+    )
+    return response.json() if response.status_code == 200 else None
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DOCUMENT ANALYSIS
 # ══════════════════════════════════════════════════════════════════════════════

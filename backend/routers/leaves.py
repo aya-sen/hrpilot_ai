@@ -163,27 +163,37 @@ def hr_approve(request_id: int, db: Session = Depends(get_db)):
     }
 
 # ── Check team availability (for chatbot) ────────────────────────────────────
+# ── Check team availability (for chatbot & UI) ────────────────────────────────────
 @router.get("/team-availability/{department}")
-def check_team_availability(department: str, start_date: date, end_date: date, db: Session = Depends(get_db)):
+def check_team_availability(
+    department: str, 
+    city: str,  # 🧠 ADD THIS: Pass the city as a parameter
+    start_date: date, 
+    end_date: date, 
+    db: Session = Depends(get_db)
+):
     
-    # Count how many people from this department are on approved leave during these dates
+    # Count how many people from this department AND city are on approved leave during these dates
     conflicts = db.query(models.LeaveRequest).join(
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
     ).filter(
         models.Employee.department == department,
+        models.Employee.city == city,  # 🏢 ADD THIS: Filter leaves by city
         models.LeaveRequest.status == "Approved",
         models.LeaveRequest.start_date <= end_date,
         models.LeaveRequest.end_date >= start_date
     ).count()
     
-    # Get total team size
+    # Get total team size for this department AND city
     team_size = db.query(models.Employee).filter(
-        models.Employee.department == department
+        models.Employee.department == department,
+        models.Employee.city == city  # 🏢 ADD THIS: Filter total size by city
     ).count()
     
     return {
         "department": department,
+        "city": city,
         "team_size": team_size,
         "absent_during_period": conflicts,
         "available": team_size - conflicts,

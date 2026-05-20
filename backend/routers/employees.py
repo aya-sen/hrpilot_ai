@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.database import get_db
-from backend.schemas import EmployeeResponse
+from backend.schemas import EmployeeResponse 
 import backend.models as models
 from typing import List
+import bcrypt as bcrypt_lib
+
 
 router = APIRouter(
     prefix="/employees",
@@ -115,3 +117,70 @@ def change_password(employee_id: int, old_password: str,
     employee.password_hash = new_hash
     db.commit()
     return {"message": "Mot de passe modifié avec succès"}
+
+
+@router.post("/add")
+def add_employee(data: dict, db: Session = Depends(get_db)):
+
+    # Check email doesn't exist
+    existing = db.query(models.Employee).filter(
+        models.Employee.email == data.get("email")
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already exists")
+
+    # Hash default password
+    default_hash = bcrypt_lib.hashpw(
+        "Password123!".encode('utf-8'),
+        bcrypt_lib.gensalt()
+    ).decode('utf-8')
+
+    new_emp = models.Employee(
+        first_name        = data.get("first_name"),
+        last_name         = data.get("last_name"),
+        email             = data.get("email"),
+        password_hash     = default_hash,
+        phone_number      = data.get("phone_number"),
+        gender            = data.get("gender"),
+        birth_date        = data.get("birth_date"),
+        city              = data.get("city"),
+        department        = data.get("department"),
+        position          = data.get("position"),
+        contract_type     = data.get("contract_type"),
+        hire_date         = data.get("hire_date"),
+        salary            = data.get("salary"),
+        leave_balance_days = 28,
+        status            = "Active",
+        role              = data.get("role", "Employee")
+    )
+
+    db.add(new_emp)
+    db.commit()
+    db.refresh(new_emp)
+
+    return {
+        "message":     "Employee added successfully",
+        "employee_id": new_emp.employee_id,
+        "email":       new_emp.email
+    }
+
+@router.put("/{employee_id}/update")
+def update_employee(employee_id: int, data: dict, db: Session = Depends(get_db)):
+    employee = db.query(models.Employee).filter(
+        models.Employee.employee_id == employee_id
+    ).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    updatable_fields = [
+        "first_name", "last_name", "phone_number", "city",
+        "department", "position", "contract_type", "salary",
+        "leave_balance_days", "status", "role", "manager_id"
+    ]
+    for field in updatable_fields:
+        if field in data and data[field] is not None:
+            setattr(employee, field, data[field])
+    
+    db.commit()
+    db.refresh(employee)
+    return {"message": "Employee updated successfully"}

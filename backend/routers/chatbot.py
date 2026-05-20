@@ -102,21 +102,31 @@ def get_chat_history(employee_id: int, db: Session, limit: int = 6):
     return list(reversed(messages))
 
 # ── Check team availability ───────────────────────────────────────────────────
-def check_team_availability(department: str, db: Session) -> str:
+def check_team_availability(department: str, city: str, db: Session) -> str:
+    
+    # Count approved absences in same dept AND same city
     approved_absences = db.query(models.LeaveRequest).join(
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
     ).filter(
         models.Employee.department == department,
+        models.Employee.city       == city,        # ← ADD THIS
         models.LeaveRequest.status == "Approved"
     ).count()
 
     team_size = db.query(models.Employee).filter(
-        models.Employee.department == department
+        models.Employee.department == department,
+        models.Employee.city       == city          # ← ADD THIS
     ).count()
 
-    return f"Département {department}: {team_size} membres, {approved_absences} absences approuvées actuellement."
+    if team_size == 0:
+        return f"Vous êtes le seul membre de {department} à {city}."
 
+    return (
+        f"Département {department} à {city} : "
+        f"{team_size} membres, "
+        f"{approved_absences} absence(s) approuvée(s) actuellement."
+    )
 # ── Main chat endpoint ────────────────────────────────────────────────────────
 @router.post("/message")
 def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
@@ -126,7 +136,7 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
     employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    team_info = check_team_availability(employee.department, db)
+    team_info = check_team_availability(employee.department, employee.city, db)
 
     # 5. Ton Prompt (J'ai juste clarifié l'étape de conseil)
     # 5. Build system prompt
