@@ -114,7 +114,8 @@ def generate_attestation_travail(employee: dict) -> str:
     }
     last_name = employee['last_name'].replace(' ', '_')
     filename = f"attestation_travail_{last_name}_{employee['first_name']}_{today}.docx"
-    return fill_template("attestation_travail.docx", placeholders, filename)
+    # FIXED: Added city parameter here so the signature triggers properly!
+    return fill_template("attestation_travail.docx", placeholders, filename, city=employee['city'])
 
 
 def generate_attestation_salaire(employee: dict, objet: str = "usage personnel") -> str:
@@ -133,7 +134,7 @@ def generate_attestation_salaire(employee: dict, objet: str = "usage personnel")
     }
     last_name = employee['last_name'].replace(' ', '_')
     filename = f"attestation_salaire_{last_name}_{employee['first_name']}_{today}.docx"
-    return fill_template("attestation_salaire.docx", placeholders, filename,city=employee['city'] )
+    return fill_template("attestation_salaire.docx", placeholders, filename, city=employee['city'])
 
 
 def generate_lettre_conge(employee: dict, leave_request: dict) -> str:
@@ -152,7 +153,7 @@ def generate_lettre_conge(employee: dict, leave_request: dict) -> str:
     }
     last_name = employee['last_name'].replace(' ', '_')
     filename = f"lettre_conge_{last_name}_{employee['first_name']}_{today}.docx"
-    return fill_template("lettre_conge.docx", placeholders, filename , city=employee['city'])
+    return fill_template("lettre_conge.docx", placeholders, filename, city=employee['city'])
 
 
 def generate_bulletin_paie(employee: dict, month: str, year: int) -> str:
@@ -160,10 +161,10 @@ def generate_bulletin_paie(employee: dict, month: str, year: int) -> str:
     
     # Simple salary calculations
     salaire_brut   = float(employee['salary'])
-    cnss_employee  = round(salaire_brut * 0.0448, 2)   # 4.48% CNSS employee part
-    amo_employee   = round(salaire_brut * 0.0226, 2)   # 2.26% AMO employee part  
+    cnss_employee  = round(salaire_brut * 0.0448, 2)
+    amo_employee   = round(salaire_brut * 0.0226, 2)  
     ir_base        = salaire_brut - cnss_employee - amo_employee
-    ir              = round(ir_base * 0.15, 2)          # simplified IR estimate
+    ir             = round(ir_base * 0.15, 2)
     salaire_net    = round(salaire_brut - cnss_employee - amo_employee - ir, 2)
     
     placeholders = {
@@ -184,7 +185,7 @@ def generate_bulletin_paie(employee: dict, month: str, year: int) -> str:
     }
     last_name = employee['last_name'].replace(' ', '_')
     filename = f"bulletin_paie_{last_name}_{employee['first_name']}_{today}.docx"
-    return fill_template("bulletin_paie.docx", placeholders, filename , city=employee['city'])
+    return fill_template("bulletin_paie.docx", placeholders, filename, city=employee['city'])
 
 
 def generate_certificat_travail(employee: dict, end_date: str, reason: str = "fin de contrat") -> str:
@@ -203,26 +204,51 @@ def generate_certificat_travail(employee: dict, end_date: str, reason: str = "fi
     }
     last_name = employee['last_name'].replace(' ', '_')
     filename = f"certificat_travail_{last_name}_{employee['first_name']}_{today}.docx"
-    return fill_template("certificat_travail.docx", placeholders, filename , city=employee['city'])
-
+    return fill_template("certificat_travail.docx", placeholders, filename, city=employee['city'])
 
 
 def add_signature(doc, city: str):
-    """Add the HR signature image based on city"""
+    """Bulletproof safety check to prevent document corruption"""
+    print("\n" + "🚨" * 20)
+    print(f"[SIGNATURE DEBUG] Raw city received from database: '{city}'")
     
+    if not city:
+        print("[SIGNATURE DEBUG] ERROR: City field is None or empty!")
+        print("🚨" * 20 + "\n")
+        return
+        
+    clean_city = str(city).strip().lower()
+    print(f"[SIGNATURE DEBUG] Cleaned city name being looked up: '{clean_city}'")
+
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = current_file_dir
+    while base_dir and not os.path.exists(os.path.join(base_dir, "documents")) and base_dir != os.path.dirname(base_dir):
+        base_dir = os.path.dirname(base_dir)
+        
+    if not os.path.exists(os.path.join(base_dir, "documents")):
+        base_dir = os.path.abspath(os.path.join(current_file_dir, ".."))
+
     signatures = {
-        "Casablanca": "documents/signatures/signature_casablanca.png",
-        "Rabat":      "documents/signatures/signature_rabat.png",
-        "Tanger":     "documents/signatures/signature_tanger.png",
+        "casablanca": os.path.join(base_dir, "documents", "signatures", "signature_casablanca.png"),
+        "rabat":      os.path.join(base_dir, "documents", "signatures", "signature_rabat.png"),
+        "tanger":     os.path.join(base_dir, "documents", "signatures", "signature_tanger.png"),
+        "tangier":    os.path.join(base_dir, "documents", "signatures", "signature_tanger.png"),
     }
     
-    sig_path = signatures.get(city)
+    sig_path = signatures.get(clean_city)
+    print(f"[SIGNATURE DEBUG] Looking for file at absolute path:\n -> {sig_path}")
     
-    if sig_path and os.path.exists(sig_path):
-        # Find the signature placeholder paragraph and replace it
+    file_exists = os.path.exists(sig_path) if sig_path else False
+    print(f"[SIGNATURE DEBUG] Does file exist on disk? {file_exists}")
+    print("🚨" * 20 + "\n")
+
+    if sig_path and file_exists:
         for paragraph in doc.paragraphs:
             if "[Signature et Cachet]" in paragraph.text:
                 paragraph.clear()
                 run = paragraph.add_run()
-                run.add_picture(sig_path, width=Inches(2.0))
+                run.add_picture(sig_path, width=Inches(1.6))
+                print("[SIGNATURE DEBUG] SUCCESS: Image added successfully.")
                 break
+    else:
+        print(f"[SIGNATURE DEBUG] CRITICAL CRASH PREVENTED: Skipped adding image for '{city}' because the file path wasn't found.")

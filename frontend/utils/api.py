@@ -85,6 +85,7 @@ def upload_certificate(request_id: int, file_bytes, filename: str):
     )
     return response.json() if response.status_code == 200 else None
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DOCUMENT REQUESTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -114,6 +115,14 @@ def get_all_documents(city: str):
 def generate_document(doc_request_id: int):
     response = requests.put(f"{BASE_URL}/documents/{doc_request_id}/generate")
     return response.json() if response.status_code == 200 else None
+
+def download_document(doc_request_id: int):
+    response = requests.get(
+        f"{BASE_URL}/documents/{doc_request_id}/download"
+    )
+    if response.status_code == 200:
+        return response.content  # returns file bytes
+    return None
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CHATBOT

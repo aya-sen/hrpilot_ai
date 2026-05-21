@@ -1,6 +1,6 @@
 import streamlit as st
 from datetime import date, timedelta
-from utils.api import (submit_leave, submit_document_request,
+from utils.api import (download_document, submit_leave, submit_document_request,
                        get_my_leaves, get_my_documents,
                        get_employee, upload_certificate)
 
@@ -199,16 +199,37 @@ def show_my_requests():
         else:
             for doc in reversed(docs):
                 status_map = {
-                    "Pending":   (":material/schedule:", "En attente", "#ffc107"),
-                    "Generated": (":material/settings_suggest:", "Généré", "#17a2b8"),
-                    "Delivered": (":material/task_alt:", "Livré", "#28a745")
+                    "Pending":   (":material/schedule:",        "En attente",  "#ffc107"),
+                    "Generated": (":material/settings_suggest:","Généré",      "#17a2b8"),
+                    "Delivered": (":material/task_alt:",        "Livré",       "#28a745")
                 }
-                icon, label, color = status_map.get(doc["status"], (":material/help:", doc["status"], "grey"))
+                icon, label, color = status_map.get(
+                    doc["status"], (":material/help:", doc["status"], "grey")
+                )
 
-                with st.expander(f"{icon} {doc['document_type']} — {doc['request_date']}"):
-                    st.markdown(f"**Statut:** <span style='color:{color};'>{icon} {label}</span>", unsafe_allow_html=True)
+                with st.expander(
+                    f"{icon} {doc['document_type']} — {doc['request_date']}"
+                ):
+                    st.markdown(
+                        f"**Statut:** <span style='color:{color};'>"
+                        f"{icon} {label}</span>",
+                        unsafe_allow_html=True
+                    )
                     if doc.get("purpose"):
                         st.markdown(f"**:material/flag: Objet:** {doc['purpose']}")
+
+                    # ── Download button ───────────────────────────────────────
                     if doc.get("generated_file_path"):
-                        st.success("Document disponible au téléchargement.", icon=":material/download_done:")
-                        st.markdown(f"**:material/file_present: Fichier:** `{doc['generated_file_path']}`")
+                        file_bytes = download_document(doc["doc_request_id"])
+                        if file_bytes:
+                            import os
+                            filename = os.path.basename(doc["generated_file_path"])
+                            st.download_button(
+                                label    = ":material/download: Télécharger le document",
+                                data     = file_bytes,
+                                file_name = filename,
+                                mime     = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key      = f"dl_{doc['doc_request_id']}"
+                            )
+                        else:
+                            st.warning("Fichier temporairement indisponible.")

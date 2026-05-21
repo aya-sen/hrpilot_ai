@@ -1,4 +1,7 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.schemas import DocumentRequestCreate, DocumentRequestResponse
@@ -193,3 +196,27 @@ def deliver_document(doc_request_id: int, db: Session = Depends(get_db)):
     
     db.commit()
     return {"message": "Document marked as delivered", "doc_request_id": doc_request_id}
+
+@router.get("/{doc_request_id}/download")
+def download_document(doc_request_id: int, db: Session = Depends(get_db)):
+    
+    doc_request = db.query(models.DocumentRequest).filter(
+        models.DocumentRequest.doc_request_id == doc_request_id
+    ).first()
+    
+    if not doc_request:
+        raise HTTPException(status_code=404, detail="Document request not found")
+    
+    if not doc_request.generated_file_path:
+        raise HTTPException(status_code=404, detail="Document not generated yet")
+    
+    file_path = doc_request.generated_file_path
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on server")
+    
+    return FileResponse(
+        path        = file_path,
+        filename    = os.path.basename(file_path),
+        media_type  = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )

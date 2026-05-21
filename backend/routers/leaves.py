@@ -90,17 +90,46 @@ def get_pending_for_manager(manager_id: int, db: Session = Depends(get_db)):
     ).all()
     return requests
 
+
 # ── Get pending requests for HR ───────────────────────────────────────────────
-@router.get("/pending-hr/{city}", response_model=List[LeaveRequestResponse])
+@router.get("/pending-hr/{city}")  # 💡 Tip: Temporarily remove response_model so it accepts custom dict structures
 def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
-    requests = db.query(models.LeaveRequest).join(
+    results = db.query(
+        models.LeaveRequest,
+        models.Employee.first_name,
+        models.Employee.last_name,
+        models.Employee.department,
+        models.Employee.city,
+        models.Employee.leave_balance_days
+    ).join(
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
     ).filter(
         models.LeaveRequest.status == "Pending_HR",
         models.Employee.city == city
     ).all()
-    return requests
+    
+    # Bundle data into a structured list of dictionaries
+    formatted_requests = []
+    for leave, fname, lname, dept, emp_city, balance in results:
+        formatted_requests.append({
+            "request_id": leave.request_id,
+            "employee_id": leave.employee_id,
+            "leave_type": leave.leave_type,
+            "start_date": str(leave.start_date),
+            "end_date": str(leave.end_date),
+            "duration_days": leave.duration_days,
+            "status": leave.status,
+            "submission_date": str(leave.submission_date) if leave.submission_date else "—",
+            "employee_comment": leave.employee_comment if hasattr(leave, 'employee_comment') else "",
+            "first_name": fname,
+            "last_name": lname,
+            "department": dept,
+            "city": emp_city,
+            "leave_balance_days": balance
+        })
+        
+    return formatted_requests
 
 # ── Manager approves or rejects ───────────────────────────────────────────────
 @router.put("/{request_id}/manager-decision")
@@ -161,6 +190,7 @@ def hr_approve(request_id: int, db: Session = Depends(get_db)):
         "request_id": request_id,
         "new_balance": employee.leave_balance_days if employee else None
     }
+
 
 # ── Check team availability (for chatbot) ────────────────────────────────────
 # ── Check team availability (for chatbot & UI) ────────────────────────────────────
