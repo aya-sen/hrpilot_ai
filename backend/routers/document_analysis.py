@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from backend.database import get_db
 import backend.models as models
-from datetime import date
+from datetime import date, datetime
 import fitz  # PyMuPDF
 import json
 import os
@@ -61,12 +61,10 @@ Format de réponse obligatoire:
 
 Types de documents possibles:
 - Certificat médical
-- Demande de congé
 - Attestation de travail
-- Attestation de salaire  
-- Contrat de travail
-- Document juridique
-- Formulaire RH
+- Attestation de salaire
+- Bulletin de paie
+- Lettre de conge
 - Document non reconnu
 """
 
@@ -77,7 +75,6 @@ Types de documents possibles:
 
     response = llm.invoke(messages)
     
-    # Clean response and parse JSON
     content = response.content.strip()
     if content.startswith("```"):
         content = content.split("```")[1]
@@ -96,14 +93,12 @@ def find_employee_by_name(name: str, db: Session):
     if len(parts) < 2:
         return None
     
-    # Try different combinations
     employee = db.query(models.Employee).filter(
         models.Employee.first_name.ilike(f"%{parts[0]}%"),
         models.Employee.last_name.ilike(f"%{parts[-1]}%")
     ).first()
     
     if not employee:
-        # Try reversed (last name first)
         employee = db.query(models.Employee).filter(
             models.Employee.first_name.ilike(f"%{parts[-1]}%"),
             models.Employee.last_name.ilike(f"%{parts[0]}%")
@@ -115,15 +110,16 @@ def find_employee_by_name(name: str, db: Session):
 # ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Upload and analyze a document ─────────────────────────────────────────────
+# ── Upload and analyze a document (Secured with hr_city parameter) ───────────
 @router.post("/upload")
-def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    
-    # Check file type
+def upload_and_analyze(
+    file: UploadFile = File(...), 
+    hr_city: str = Query(..., description="The city of the HR managing this profile"), 
+    db: Session = Depends(get_db)
+):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
     
-    # Save uploaded file temporarily
     os.makedirs("files/uploads", exist_ok=True)
     temp_path = f"files/uploads/temp_{file.filename}"
     
@@ -131,7 +127,6 @@ def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends(get_d
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        # Extract text from PDF
         text = extract_text_from_pdf(temp_path)
         
         if not text or len(text) < 20:
@@ -140,16 +135,34 @@ def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends(get_d
                 detail="Could not extract text from PDF. Make sure it's not a scanned image."
             )
         
-        # Analyze with AI
         analysis = analyze_with_ai(text)
-        
-        # Try to find matching employee
+
+        # 🟢 ADD THIS SHORT 5-LINE CHECK HERE:
+        if analysis.get("document_type") == "Document non reconnu" or analysis.get("suggested_action") == "manual_handling":
+            return {
+                "status": "success",
+                "document_type": "Document non reconnu",
+                "confidence": "Low",
+                "summary": "Ce document n'est pas un formulaire standard reconnu par l'application.",
+                "matched_employee": None,
+                "suggested_action": "manual_handling",
+                "prefilled_form": None
+            }
+
+
         employee_name = analysis.get("extracted_data", {}).get("employee_name")
         matched_employee = find_employee_by_name(employee_name, db)
         
-        # Build pre-filled form based on suggested action
+        # SECURITY CITY ENFORCEMENT CHECK
+        if matched_employee and matched_employee.city.lower() != hr_city.lower():
+            return {
+                "status": "security_restricted",
+                "message": f"Employee found ('{matched_employee.first_name} {matched_employee.last_name}') but access is restricted. They belong to {matched_employee.city}, while your access scope is restricted to {hr_city}.",
+                "document_type": analysis.get("document_type"),
+                "suggested_action": "manual_handling"
+            }
+
         prefilled_form = None
-        
         if analysis.get("suggested_action") == "create_leave_request" and matched_employee:
             prefilled_form = {
                 "type": "leave_request",
@@ -188,31 +201,18 @@ def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends(get_d
         }
     
     except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=500,
-            detail="AI could not parse the document. Please try again."
-        )
+        raise HTTPException(status_code=500, detail="AI could not parse the document. Please try again.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Clean up temp file
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-# ── Confirm and save extracted data ───────────────────────────────────────────
+# ── Confirm Leave Request ─────────────────────────────────────────────────────
 @router.post("/confirm-leave")
-def confirm_leave_from_analysis(
-    employee_id: int,
-    leave_type: str,
-    start_date: str,
-    end_date: str,
-    duration_days: int,
-    employee_comment: str = None,
-    db: Session = Depends(get_db)
-):
-    employee = db.query(models.Employee).filter(
-        models.Employee.employee_id == employee_id
-    ).first()
+def confirm_leave_from_analysis(payload: dict, db: Session = Depends(get_db)):
+    employee_id = payload.get("employee_id")
+    employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
     
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -220,30 +220,43 @@ def confirm_leave_from_analysis(
     new_leave = models.LeaveRequest(
         employee_id      = employee_id,
         manager_id       = employee.manager_id,
-        leave_type       = leave_type,
-        start_date       = start_date,
-        end_date         = end_date,
-        duration_days    = duration_days,
-        status           = "Pending_HR",  # Sick cert goes straight to HR
+        leave_type       = payload.get("leave_type", "Sick"),
+        start_date       = payload.get("start_date"),
+        end_date         = payload.get("end_date"),
+        duration_days    = int(payload.get("duration_days", 1)),
+        status           = "Pending_HR",
         submission_date  = date.today(),
-        employee_comment = employee_comment or "Créé via analyse documentaire IA"
+        employee_comment = payload.get("employee_comment", "Créé via analyse documentaire IA")
     )
     
     db.add(new_leave)
     db.commit()
     db.refresh(new_leave)
+    return {"message": "Leave request created successfully", "request_id": new_leave.request_id}
+
+# ── Confirm Document Request ──────────────────────────────────────────────────
+@router.post("/confirm-document")
+def confirm_document_from_analysis(payload: dict, db: Session = Depends(get_db)):
+    employee_id = payload.get("employee_id")
+    employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
     
-    return {
-        "message": "Leave request created from document analysis",
-        "request_id": new_leave.request_id,
-        "employee": f"{employee.first_name} {employee.last_name}",
-        "status": "Pending_HR"
-    }
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+        
+    new_request = models.DocumentRequest(
+        employee_id   = employee_id,
+        document_type = payload.get("document_type", "Attestation de travail"),
+        purpose       = payload.get("purpose", "Analyse documentaire IA"),
+        status        = "Pending",
+        request_date  = date.today()
+    )
+    db.add(new_request)
+    db.commit()
+    return {"message": "Document request logged successfully"}
 
 # ── Import règlement intérieur ────────────────────────────────────────────────
 @router.post("/import-rules")
 def import_rules_from_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files accepted")
     
@@ -254,10 +267,8 @@ def import_rules_from_pdf(file: UploadFile = File(...), db: Session = Depends(ge
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        # Extract text
         text = extract_text_from_pdf(temp_path)
         
-        # Ask AI to extract rules
         system_prompt = """Tu es un expert RH. Extrait les règles du règlement intérieur fourni.
 Réponds UNIQUEMENT avec un JSON valide:
 {
@@ -287,7 +298,6 @@ Extrait maximum 20 règles les plus importantes."""
         rules_data = json.loads(content.strip())
         rules = rules_data.get("rules", [])
         
-        # Clear existing rules and insert new ones
         db.query(models.InternalRule).delete()
         
         inserted = 0
