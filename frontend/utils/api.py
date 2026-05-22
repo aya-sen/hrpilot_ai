@@ -85,6 +85,24 @@ def upload_certificate(request_id: int, file_bytes, filename: str):
     )
     return response.json() if response.status_code == 200 else None
 
+def get_team_availability(department: str, city: str, start_date: str, end_date: str):
+    """
+    Appelle le backend pour récupérer les indicateurs de charge/disponibilité de l'équipe.
+    """
+    try:
+        # Note: modifie le port ou l'URL de base si nécessaire pour correspondre au reste de ton fichier api.py
+        url = f"http://127.0.0.1:8000/leaves/team-availability/{department}"
+        params = {
+            "city": city,
+            "start_date": start_date,
+            "end_date": end_date
+        }
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        print(f"Erreur get_team_availability: {e}")
+    return None
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DOCUMENT REQUESTS
