@@ -2,12 +2,12 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
+
 from utils.api import (
-    get_kpis, get_leaves_by_department, get_leaves_by_type,
-    get_leaves_by_status, get_monthly_trends, get_documents_by_type,
-    get_burnout_risk, get_absence_predictions, get_department_alerts,
+    get_leaves_by_type,
+    get_burnout_risk, get_leaves_monthly_current_year, get_department_alerts,
     get_city_stats, get_gender_distribution, get_contract_distribution,
-    get_turnover_rate, get_avg_seniority, get_absenteeism_rate
+    get_turnover_rate, get_avg_seniority, get_absenteeism_rate,get_leaves_pressure_summer
 )
 
 def show_dashboard():
@@ -20,43 +20,52 @@ def show_dashboard():
     """, unsafe_allow_html=True)
     
     user_city = st.session_state.city
+
+    # ── 1. TITRE PRINCIPAL DE LA PAGE ─────────────────────────────────────────
     st.title(":material/analytics: Tableau de Bord RH")
-    st.caption(f"Statistiques actuelles pour la ville de **{user_city}**")
+    
+    # Récupération dynamique du libellé de la ville choisie via le state
+    # (Si le sélecteur n'a pas encore été rendu, on prend la ville par défaut du user)
+    current_label = st.session_state.get("view_city_selector", user_city)
+    
+    if current_label == "Toutes les agences":
+        st.caption("Statistiques actuelles pour **toutes les agences**")
+    else:
+        st.caption(f"Statistiques actuelles pour la ville de **{current_label}**")
+        
     st.divider()
-    # ── City selector — only for Casablanca (DRH) ─────────────────────────
+
+    # ── 2. BLOC DE SÉLECTION (À sa place d'origine) ───────────────────────────
     if user_city == "Casablanca":
         col1, col2 = st.columns([3, 1])
         with col1:
             st.markdown("#### Direction des Ressources Humaines")
         with col2:
+            # On ajoute une 'key' pour pouvoir lire la valeur n'importe où dans le script
             city_filter = st.selectbox(
                 "Vue",
                 ["Casablanca", "Rabat", "Tanger", "Toutes les agences"],
-                index=0
+                index=0,
+                key="view_city_selector"
             )
         city = "all" if city_filter == "Toutes les agences" else city_filter
-        label = city_filter
     else:
-        city  = user_city
-        label = user_city
-        st.markdown(f"#### Agence de **{label}**")
+        city = user_city
+        st.markdown(f"#### Agence de **{user_city}**")
 
     st.divider()
 
     # ── KPIs Row 1 ────────────────────────────────────────────────────────────
-    kpis          = get_kpis(city)
+
     city_stats    = get_city_stats(city) 
     turnover      = get_turnover_rate(city)
     seniority     = get_avg_seniority(city)
     absenteeism   = get_absenteeism_rate(city) 
     alerts_response   = get_department_alerts(city)
-    dept_data     = get_leaves_by_department(city)
+    pressure_response     = get_leaves_pressure_summer(city)
     type_data     = get_leaves_by_type(city)
-    status_data   = get_leaves_by_status(city)
-    monthly       = get_monthly_trends(city)
-    doc_data      = get_documents_by_type(city)
     burnout       = get_burnout_risk(city)
-    predictions   = get_absence_predictions(city)
+    yearly_data = get_leaves_monthly_current_year(city)
     gender_data   = get_gender_distribution(city)
     contract_data = get_contract_distribution(city)
 
@@ -106,11 +115,7 @@ def show_dashboard():
             label=":material/history: Ancienneté moyenne",
             value=f"{seniority.get('avg_years', 0)} ans"
         )
-    with col3:
-        st.metric(
-            label=":material/corporate_fare: Total entreprise",
-            value=f"{kpis.get('total_employees', 0)}"
-        )
+    
 
     st.divider()
 
@@ -136,32 +141,48 @@ def show_dashboard():
             pass
 
     # ── Charts Row 1 ──────────────────────────────────────────────────────────
+    # ── Charts Row 1 (Attentes vs Types) ──────────────────────────────────────
     col1, col2 = st.columns(2)
+    
     with col1:
-        st.subheader(":material/leaderboard: Congés par département")
-        dept_data = get_leaves_by_department(city)
-        if dept_data:
-            df  = pd.DataFrame(dept_data)
-            fig = px.bar(df, x="department", y="total_leaves",
-                        color="total_leaves", color_continuous_scale="Blues",
-                        labels={"department": "Département",
-                                "total_leaves": "Total"})
-            fig.update_layout(showlegend=False, height=300)
-            st.plotly_chart(fig, use_container_width=True)
+        # Titre court avec icône native
+        st.subheader(":material/hourglass_empty: Attentes Été 2026")
+        
+        if pressure_response:
+            df_pressure = pd.DataFrame(pressure_response)
+            
+            # Pivotement des données
+            df_pivot = df_pressure.pivot(
+                index="Département", 
+                columns="Mois", 
+                values="Demandes en Attente"
+            )
+            
+            # Tri chronologique et nettoyage
+            df_pivot = df_pivot.reindex(columns=["Juin", "Juillet", "Août"]).fillna(0).astype(int)
+            
+            st.dataframe(
+                df_pivot.style.background_gradient(cmap="Oranges", vmin=0, vmax=5),
+                use_container_width=True
+            )
+        else:
+            st.info("Aucune demande en attente pour la période estivale.")
 
     with col2:
-        st.subheader(":material/pie_chart: Types de congés")
-
+        # Titre court avec icône native, parfaitement aligné à col1
+        st.subheader(":material/pie_chart: Répartition Congés")
+        
+        # On s'assure que la récupération de données et le graphique restent bien dans col2
         type_data = get_leaves_by_type(city)
         
-        if type_data and len(type_data) > 0: # Vérifie que la liste n'est pas vide
+        if type_data and len(type_data) > 0:
             df = pd.DataFrame(type_data)
             fig = px.pie(df, values="count", names="leave_type", hole=0.4)
-            fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20))
-            # REMPLACER use_container_width PAR width="stretch"
-            st.plotly_chart(fig, width="stretch")
+            # Taille compacte (height=250) et marges réduites
+            fig.update_layout(height=250, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Aucune donnée de congé disponible pour cette sélection.")
+            st.info("Aucune donnée disponible.")
 
     # ── Charts Row 2 ──────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
@@ -189,61 +210,31 @@ def show_dashboard():
             fig.update_layout(height=300)
             st.plotly_chart(fig, use_container_width=True)
 
-    # ── Charts Row 3 ──────────────────────────────────────────────────────────
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader(":material/show_chart: Tendances mensuelles des demandes")
-        monthly = get_monthly_trends(city)
-        if monthly:
-            df  = pd.DataFrame(monthly)
-            fig = px.line(df, x="period", y="count", markers=True,
-                         labels={"period": "Période", "count": "Demandes"})
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.subheader(":material/donut_large: Statut des demandes")
-        status_data = get_leaves_by_status(city)
-        if status_data:
-            df = pd.DataFrame(status_data)
-            colors = {"Approved": "#2ecc71", "Rejected": "#e74c3c",
-                     "Pending_Manager": "#f39c12", "Pending_HR": "#3498db"}
-            fig = px.bar(df, x="status", y="count", color="status",
-                        color_discrete_map=colors,
-                        labels={"status": "Statut", "count": "Nombre"})
-            fig.update_layout(showlegend=False, height=300)
-            st.plotly_chart(fig, use_container_width=True)
-
-    # ── Documents ─────────────────────────────────────────────────────────────
-    st.subheader(":material/folder_open: Types de documents demandés")
-    doc_data = get_documents_by_type(city)
-    if doc_data:
-        df  = pd.DataFrame(doc_data)
-        fig = px.bar(df, x="document_type", y="count",
-                    color="count", color_continuous_scale="Greens",
-                    labels={"document_type": "Type", "count": "Nombre"})
-        fig.update_layout(showlegend=False, height=250, xaxis_tickangle=-20)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.divider()
-
-    # ── Predictions ───────────────────────────────────────────────────────────
-    st.subheader(":material/auto_graph: Prédictions d'absences")
-    predictions = get_absence_predictions(city)
-    if predictions.get("peak_month"):
+    # ── Section : Suivi Absences Année En Cours ───────────────────────────────
+    st.subheader(":material/calendar_month: Absences de l'Année")
+    
+    if yearly_data and yearly_data.get("monthly_distribution"):
         col1, col2 = st.columns([2, 1])
+        
         with col1:
-            monthly_dist = predictions.get("monthly_distribution", [])
-            if monthly_dist:
-                df  = pd.DataFrame(monthly_dist)
-                fig = px.bar(df, x="month", y="absences",
-                            labels={"month": "Mois",
-                                    "absences": "Absences"})
-                fig.update_layout(height=250)
-                st.plotly_chart(fig, use_container_width=True)
+            df_year = pd.DataFrame(yearly_data["monthly_distribution"])
+            
+            # Graphique en barres propre
+            fig_year = px.bar(
+                df_year, 
+                x="month", 
+                y="absences",
+                labels={"month": "Mois", "absences": "Absences"}
+            )
+            fig_year.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_year, use_container_width=True)
+            
         with col2:
-            st.info(f" {predictions.get('prediction')}")
-
+            # On affiche le message d'information de l'année en cours
+            st.info(yearly_data.get("info_message", "Aucune donnée pour cette période."))
+    else:
+        st.info("Aucune donnée disponible pour l'année en cours.")
+        
     st.divider()
 
     # ── Burnout Risk ──────────────────────────────────────────────────────────

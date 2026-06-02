@@ -165,37 +165,28 @@ def clear_chat_history(employee_id: int):
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_kpis(city: str = "all"):
-    response = requests.get(f"{BASE_URL}/dashboard/kpis/{city}")
-    return response.json() if response.status_code == 200 else {}
 
-def get_leaves_by_department(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/leaves-by-department/{city}")
+def get_leaves_pressure_summer(city: str):
+    response = requests.get(f"{BASE_URL}/dashboard/leaves-pressure-summer/{city}")
     return response.json() if response.status_code == 200 else []
 
-def get_leaves_by_department(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/leaves-by-department/{city}")
-    return response.json() if response.status_code == 200 else []
-
-def get_leaves_by_status(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/leaves-by-status/{city}")
-    return response.json() if response.status_code == 200 else []
-
-def get_monthly_trends(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/monthly-trends/{city}")
-    return response.json() if response.status_code == 200 else []
-
-def get_documents_by_type(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/documents-by-type/{city}")
-    return response.json() if response.status_code == 200 else []
 
 def get_burnout_risk(city: str):
     response = requests.get(f"{BASE_URL}/dashboard/burnout-risk/{city}")
     return response.json() if response.status_code == 200 else {}
 
-def get_absence_predictions(city: str):
-    response = requests.get(f"{BASE_URL}/dashboard/absence-predictions/{city}")
-    return response.json() if response.status_code == 200 else {}
+def get_leaves_monthly_current_year(city: str):
+    try:
+        # Attention à ce que l'URL corresponde exactement au préfixe de ton routeur (ex: /dashboard/...)
+        response = requests.get(f"{BASE_URL}/dashboard/leaves-monthly-current-year/{city}")
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Erreur API Status Code: {response.status_code}")
+            return {}
+    except Exception as e:
+        print(f"Erreur de connexion API: {e}")
+        return {}
 
 def get_department_alerts(city: str = "all"):
     response = requests.get(f"{BASE_URL}/dashboard/department-alerts/{city}")
@@ -204,10 +195,6 @@ def get_department_alerts(city: str = "all"):
 def get_city_stats(city: str):
     response = requests.get(f"{BASE_URL}/dashboard/city-stats/{city}")
     return response.json() if response.status_code == 200 else {}
-
-def get_avg_processing_time(city: str = "all"):
-    response = requests.get(f"{BASE_URL}/dashboard/avg-processing-time/{city}")
-    return response.json() if response.status_code == 200 else []
 
 def get_leaves_by_type(city):
     response = requests.get(f"{BASE_URL}/dashboard/leaves-by-type/{city}")

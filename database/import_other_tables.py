@@ -28,6 +28,15 @@ print(f"document_requests: {len(df_doc)} rows")
 print(f"chat_history:      {len(df_chat)} rows")
 print()
 
+with engine.connect() as conn:
+    conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
+    conn.execute(text("DELETE FROM leave_request;"))
+    conn.execute(text("DELETE FROM document_request;"))
+    conn.execute(text("DELETE FROM chat_history;"))
+    conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
+    conn.commit()
+    print("✅ Tables secondaires vidées proprement")
+
 # ── Import all 3 ─────────────────────────────────────────────────────────────
 with engine.connect() as conn:
     conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))

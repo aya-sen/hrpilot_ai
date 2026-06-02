@@ -121,7 +121,21 @@ def show_employees():
                    s in e.get("last_name","").lower() or
                    s in e.get("email","").lower()]
 
-    st.markdown(f"**{len(filtered)} employé(s) trouvé(s)**")
+    total_found = len(filtered)
+    
+    # (Adapte "On Leave" ou "Active" si les mots exacts dans ta base sont différents)
+    count_active = sum(1 for e in filtered if e.get("status") == "Active")
+    count_leave = sum(1 for e in filtered if e.get("status") == "On Leave")
+    
+    # Construction de la ligne d'information avec les icônes Streamlit
+    status_text = (
+        f":material/group: **{total_found}** au total  |  "
+        f":material/check_circle: **{count_active}** présents  |  "
+        f":material/schedule: **{count_leave}** en congé"
+    )
+    
+    # Affichage de la ligne d'information stylisée
+    st.markdown(status_text)
     st.divider()
 
     # ── 3. PAGINATION CALCULATION ─────────────────────────────────────────────

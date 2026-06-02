@@ -1,92 +1,98 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy import extract, func, case
 from backend.database import get_db
 import backend.models as models
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 router = APIRouter(
     prefix="/dashboard",
     tags=["Dashboard Analytics"]
 )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GENERAL KPIs
-# ══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/kpis/{city}")
-def get_kpis(city: str, db: Session = Depends(get_db)):
-    emp_query = db.query(models.Employee)
+@router.get("/city-stats/{city}")
+def city_stats(city: str, db: Session = Depends(get_db)):
+
+    # 1. Total Employés
+    query_total = db.query(models.Employee)
     if city != "all":
-        emp_query = emp_query.filter(models.Employee.city == city)
+        query_total = query_total.filter(models.Employee.city == city)
+    total = query_total.count()
 
-    total_employees  = emp_query.count()
-    active_employees = emp_query.filter(
-        models.Employee.status == "Active").count()
-    on_leave         = emp_query.filter(
-        models.Employee.status == "On Leave").count()
-
-    leave_query = db.query(models.LeaveRequest).join(
-        models.Employee,
-        models.LeaveRequest.employee_id == models.Employee.employee_id
-    )
+    # 2. Actifs
+    query_active = db.query(models.Employee).filter(models.Employee.status == "Active")
     if city != "all":
-        leave_query = leave_query.filter(models.Employee.city == city)
+        query_active = query_active.filter(models.Employee.city == city)
+    active = query_active.count()
 
-    pending_leaves  = leave_query.filter(
-        models.LeaveRequest.status.in_(["Pending_Manager","Pending_HR"])
-    ).count()
-    approved_leaves = leave_query.filter(
-        models.LeaveRequest.status == "Approved"
-    ).count()
-
-    doc_query = db.query(models.DocumentRequest).join(
-        models.Employee,
-        models.DocumentRequest.employee_id == models.Employee.employee_id
-    )
+    # 3. Congés en attente
+    query_leaves = db.query(models.LeaveRequest).join(
+        models.Employee, models.LeaveRequest.employee_id == models.Employee.employee_id
+    ).filter(models.LeaveRequest.status == "Pending_HR")
     if city != "all":
-        doc_query = doc_query.filter(models.Employee.city == city)
+        query_leaves = query_leaves.filter(models.Employee.city == city)
+    pending_leaves = query_leaves.count()
 
-    pending_docs   = doc_query.filter(
-        models.DocumentRequest.status == "Pending").count()
-    generated_docs = doc_query.filter(
-        models.DocumentRequest.status.in_(["Generated","Delivered"])
-    ).count()
+    # 4. Docs en attente
+    query_docs = db.query(models.DocumentRequest).join(
+        models.Employee, models.DocumentRequest.employee_id == models.Employee.employee_id
+    ).filter(models.DocumentRequest.status == "Pending")
+    if city != "all":
+        query_docs = query_docs.filter(models.Employee.city == city)
+    pending_docs = query_docs.count()
 
     return {
-        "total_employees":     total_employees,
-        "active_employees":    active_employees,
-        "on_leave":            on_leave,
-        "pending_leaves":      pending_leaves,
-        "approved_leaves":     approved_leaves,
-        "pending_documents":   pending_docs,
-        "generated_documents": generated_docs
+        "city": city,
+        "total_employees": total,
+        "active": active,
+        "pending_leaves": pending_leaves,
+        "pending_docs": pending_docs
     }
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LEAVE ANALYTICS
 # ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/leaves-by-department/{city}")
-def leaves_by_department(city: str, db: Session = Depends(get_db)):
-    # 1. On prépare la base de la requête (SELECT, JOIN, GROUP BY)
-    query = db.query(
-        models.Employee.department,
-        func.count(models.LeaveRequest.request_id).label("total_leaves")
-    ).join(
-        models.LeaveRequest,
-        models.Employee.employee_id == models.LeaveRequest.employee_id
-    )
-
-    # 2. ON AJOUTE LE FILTRE ICI : seulement si city n'est pas "all"
-    if city != "all":
-        query = query.filter(models.Employee.city == city)
-
-    # 3. On termine par le group_by et on exécute (.all())
-    results = query.group_by(models.Employee.department).all()
+@router.get("/leaves-pressure-summer/{city}")
+def get_leaves_pressure_summer(city: str, db: Session = Depends(get_db)):
+    months = [6, 7, 8]  # Juin, Juillet, Août 2026
+    departments = [d[0] for d in db.query(models.Employee.department).distinct().all() if d[0]]
     
-    return [{"department": r.department, "total_leaves": r.total_leaves} for r in results]
+    pressure_data = []
+    
+    for dept in departments:
+        for m in months:
+            # 1. Nombre total d'employés dans le département (pour calibrer la taille de l'équipe)
+            emp_query = db.query(models.Employee.employee_id).filter(models.Employee.department == dept)
+            if city.lower() != "all":
+                emp_query = emp_query.filter(models.Employee.city.ilike(city))
+            
+            total_staff = emp_query.count()
+            if total_staff == 0:
+                continue
+                
+            # 2. Compter le nombre de demandes EN ATTENTE (Pending) pour ce mois
+            # CORRECTION : On crée la sous-requête et on lui applique le filtre city !
+            sub_emp_query = db.query(models.Employee.employee_id).filter(models.Employee.department == dept)
+            if city.lower() != "all":
+                sub_emp_query = sub_emp_query.filter(models.Employee.city.ilike(city))
 
+            pending_requests = db.query(models.LeaveRequest.employee_id).distinct().filter(
+                models.LeaveRequest.employee_id.in_(sub_emp_query), # Utilise la sous-requête filtrée ici
+                models.LeaveRequest.status == "Pending",
+                extract('month', models.LeaveRequest.start_date) == m,
+                extract('year', models.LeaveRequest.start_date) == 2026
+            ).count()
+            
+            month_names = {6: "Juin", 7: "Juillet", 8: "Août"}
+            pressure_data.append({
+                "Département": dept,
+                "Mois": month_names[m],
+                "Demandes en Attente": pending_requests,
+                "Alerte Risque": "Élevé" if (pending_requests / total_staff) > 0.3 else "Normal"
+            })
+            
+    return pressure_data
 
 @router.get("/leaves-by-type/{city}")
 def get_leaves_by_type(city: str, db: Session = Depends(get_db)):
@@ -107,110 +113,6 @@ def get_leaves_by_type(city: str, db: Session = Depends(get_db)):
     results = query.group_by(models.LeaveRequest.leave_type).all()
     
     return [{"leave_type": r.leave_type, "count": r.count} for r in results]
-
-
-@router.get("/leaves-by-status/{city}")
-def leaves_by_status(city: str, db: Session = Depends(get_db)):
-    # 1. On initialise la requête avec le JOIN
-    query = db.query(
-        models.LeaveRequest.status,
-        func.count(models.LeaveRequest.request_id).label("count")
-    ).join(
-        models.Employee,
-        models.LeaveRequest.employee_id == models.Employee.employee_id
-    )
-
-    # 2. Application conditionnelle du filtre par ville
-    if city != "all":
-        query = query.filter(models.Employee.city == city)
-
-    # 3. Groupement par statut et exécution
-    results = query.group_by(models.LeaveRequest.status).all()
-    
-    return [{"status": r.status, "count": r.count} for r in results]
-
-@router.get("/monthly-trends/{city}")
-def monthly_trends(city: str, db: Session = Depends(get_db)):
-    # 1. On prépare la base de la requête avec le JOIN
-    query = db.query(
-        func.month(models.LeaveRequest.submission_date).label("month"),
-        func.year(models.LeaveRequest.submission_date).label("year"),
-        func.count(models.LeaveRequest.request_id).label("count")
-    ).join(
-        models.Employee,
-        models.LeaveRequest.employee_id == models.Employee.employee_id
-    )
-
-    # 2. On applique le filtre seulement si city n'est pas "all"
-    if city != "all":
-        query = query.filter(models.Employee.city == city)
-
-    # 3. On ajoute le groupement et l'ordonnancement avant d'exécuter
-    results = query.group_by(
-        func.year(models.LeaveRequest.submission_date),
-        func.month(models.LeaveRequest.submission_date)
-    ).order_by(
-        func.year(models.LeaveRequest.submission_date),
-        func.month(models.LeaveRequest.submission_date)
-    ).all()
-
-    months_fr = ['', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun',
-                 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
-    
-    return [{"period": f"{months_fr[r.month]} {r.year}",
-             "count": r.count} for r in results]
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DOCUMENT ANALYTICS
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/documents-by-type/{city}")
-def documents_by_type(city: str, db: Session = Depends(get_db)):
-    # 1. Préparation de la requête de base avec la jointure vers Employee
-    query = db.query(
-        models.DocumentRequest.document_type,
-        func.count(models.DocumentRequest.doc_request_id).label("count")
-    ).join(
-        models.Employee,
-        models.DocumentRequest.employee_id == models.Employee.employee_id
-    )
-
-    # 2. On applique le filtre seulement si city n'est pas "all"
-    if city != "all":
-        query = query.filter(models.Employee.city == city)
-
-    # 3. Groupement et exécution
-    results = query.group_by(models.DocumentRequest.document_type).all()
-    
-    return [{"document_type": r.document_type, "count": r.count} for r in results]
-
-
-@router.get("/avg-processing-time/{city}")
-def avg_processing_time(city: str, db: Session = Depends(get_db)):
-    query = db.query(
-        models.DocumentRequest.document_type,
-        func.avg(func.datediff(
-            models.DocumentRequest.delivery_date,
-            models.DocumentRequest.request_date
-        )).label("avg_days")
-    ).join(
-        models.Employee,
-        models.DocumentRequest.employee_id == models.Employee.employee_id
-    ).filter(
-        models.DocumentRequest.delivery_date != None
-    )
-    if city != "all":
-        query = query.filter(models.Employee.city == city)
-
-    results = query.group_by(models.DocumentRequest.document_type).all()
-    return [
-        {
-            "document_type": r.document_type,
-            "avg_days": round(float(r.avg_days), 1) if r.avg_days else 0
-        }
-        for r in results
-    ]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SMART FEATURES — BURNOUT & PREDICTIONS
@@ -263,127 +165,57 @@ def get_burnout_risk(city: str, db: Session = Depends(get_db)):
             
     return {"total_at_risk": len(at_risk), "employees": at_risk}
 
-
-@router.get("/absence-predictions/{city}")
-def absence_predictions(city: str, db: Session = Depends(get_db)):
-    # 1. On initialise la requête avec le JOIN
+@router.get("/leaves-monthly-current-year/{city}")
+def get_leaves_monthly_current_year(city: str, db: Session = Depends(get_db)):
+    # Détection AUTOMATIQUE de l'année en cours
+    current_year = datetime.now().year
+    
+    # 1. Requête sur l'année dynamique détectée avec statut Approved
     query = db.query(
-        func.month(models.LeaveRequest.start_date).label("month"),
+        extract('month', models.LeaveRequest.start_date).label("month"),
         func.count(models.LeaveRequest.request_id).label("count")
     ).join(
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
     ).filter(
-        models.LeaveRequest.status == "Approved"
+        models.LeaveRequest.status == "Approved",
+        extract('year', models.LeaveRequest.start_date) == current_year
     )
 
-    # 2. On ajoute le filtre de ville SEULEMENT si ce n'est pas "all"
-    if city != "all":
-        query = query.filter(models.Employee.city == city)
+    # 2. Filtre géographique
+    if city.lower() != "all":
+        query = query.filter(models.Employee.city.ilike(city))
 
-    # 3. On groupe, on trie et on exécute
-    results = query.group_by(
-        func.month(models.LeaveRequest.start_date)
-    ).order_by(
-        func.month(models.LeaveRequest.start_date)
-    ).all()
+    results = query.group_by(extract('month', models.LeaveRequest.start_date)).all()
 
+    # Initialisation de tous les mois à 0 pour avoir un graphique propre de Janvier à Décembre
     months_fr = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
                  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
     
-    monthly_data = [{"month": months_fr[r.month], "absences": r.count} for r in results]
+    full_year_data = {months_fr[i]: 0 for i in range(1, 13)}
+    
+    for r in results:
+        if r.month:
+            full_year_data[months_fr[int(r.month)]] = r.count
 
-    # Find peak month
-    peak = max(monthly_data, key=lambda x: x["absences"]) if monthly_data else None
+    # Formatage final pour le tableau de données
+    monthly_data = [{"month": m, "absences": count} for m, count in full_year_data.items()]
+
+    # Calcul du pic de l'année en cours
+    peak = max(monthly_data, key=lambda x: x["absences"]) if results else None
+
+    # Message professionnel dynamique avec l'année automatique
+    if peak and peak["absences"] > 0:
+        info_msg = f"Pic d'absences enregistré en {peak['month']} avec {peak['absences']} congés validés pour {current_year}."
+    else:
+        info_msg = f"Aucune absence enregistrée ou validée sur l'année {current_year}."
 
     return {
         "monthly_distribution": monthly_data,
-        "peak_month": peak["month"] if peak else None,
-        "peak_absences": peak["absences"] if peak else 0,
-        "prediction": f"Pic d'absences prévu en {peak['month']} ({peak['absences']} demandes historiquement)" if peak else "Données insuffisantes"
+        "peak_month": peak["month"] if (peak and peak["absences"] > 0) else None,
+        "info_message": info_msg
     }
 
-@router.get("/department-alerts/{city}")
-def department_alerts(city: str, db: Session = Depends(get_db)):
-    alerts      = []
-    departments = ["IT","Finance","HR","Marketing",
-                   "Sales","Operations","Support","R&D"]
-
-    for dept in departments:
-        query = db.query(models.Employee).filter(
-            models.Employee.department == dept
-        )
-        if city != "all":
-            query = query.filter(models.Employee.city == city)
-        team_size = query.count()
-
-        absence_query = db.query(models.LeaveRequest).join(
-            models.Employee,
-            models.LeaveRequest.employee_id == models.Employee.employee_id
-        ).filter(
-            models.Employee.department == dept,
-            models.LeaveRequest.status == "Approved",
-            models.LeaveRequest.start_date <= date.today(),
-            models.LeaveRequest.end_date   >= date.today()
-        )
-        if city != "all":
-            absence_query = absence_query.filter(models.Employee.city == city)
-        current_absences = absence_query.count()
-
-        if team_size > 0:
-            absence_rate = (current_absences / team_size) * 100
-
-            if absence_rate >= 30:
-                alerts.append({
-                    "department":    dept,
-                    "team_size":     team_size,
-                    "absent_today":  current_absences,
-                    "absence_rate":  round(absence_rate, 1),
-                    "alert_level":   "Critical" if absence_rate >= 50 else "Warning",
-                    "message":       f"⚠️ {dept}: {current_absences}/{team_size} absents ({round(absence_rate,1)}%)"
-                })
-
-    return {"total_alerts": len(alerts), "alerts": alerts}
-
-
-@router.get("/city-stats/{city}")
-def city_stats(city: str, db: Session = Depends(get_db)):
-
-    # 1. Total Employés
-    query_total = db.query(models.Employee)
-    if city != "all":
-        query_total = query_total.filter(models.Employee.city == city)
-    total = query_total.count()
-
-    # 2. Actifs
-    query_active = db.query(models.Employee).filter(models.Employee.status == "Active")
-    if city != "all":
-        query_active = query_active.filter(models.Employee.city == city)
-    active = query_active.count()
-
-    # 3. Congés en attente
-    query_leaves = db.query(models.LeaveRequest).join(
-        models.Employee, models.LeaveRequest.employee_id == models.Employee.employee_id
-    ).filter(models.LeaveRequest.status == "Pending_HR")
-    if city != "all":
-        query_leaves = query_leaves.filter(models.Employee.city == city)
-    pending_leaves = query_leaves.count()
-
-    # 4. Docs en attente
-    query_docs = db.query(models.DocumentRequest).join(
-        models.Employee, models.DocumentRequest.employee_id == models.Employee.employee_id
-    ).filter(models.DocumentRequest.status == "Pending")
-    if city != "all":
-        query_docs = query_docs.filter(models.Employee.city == city)
-    pending_docs = query_docs.count()
-
-    return {
-        "city": city,
-        "total_employees": total,
-        "active": active,
-        "pending_leaves": pending_leaves,
-        "pending_docs": pending_docs
-    }
 
 @router.get("/gender-distribution/{city}")
 def gender_distribution(city: str, db: Session = Depends(get_db)):
@@ -489,7 +321,7 @@ def get_absenteeism_rate(city: str, db: Session = Depends(get_db)):
         "rate": round(rate, 1)
     }
 
-@router.get("/dashboard/department-alerts/{city}")
+@router.get("/department-alerts/{city}")
 def get_department_alerts(city: str, db: Session = Depends(get_db)):
     # 1. Liste des départements
     departments = [d[0] for d in db.query(models.Employee.department).distinct().all() if d[0]]
@@ -510,15 +342,20 @@ def get_department_alerts(city: str, db: Session = Depends(get_db)):
         if total_dept == 0:
             continue
 
-        # 3. On compte les absents uniquement parmi CES employés
-        absent_employee_ids = db.query(models.LeaveRequest.employee_id).filter(
+        # Step 3 — get the raw IDs as a plain Python set
+        absent_rows = db.query(models.LeaveRequest.employee_id).filter(
             models.LeaveRequest.employee_id.in_(employee_ids),
             models.LeaveRequest.status == "Approved",
             models.LeaveRequest.start_date <= date.today(),
             models.LeaveRequest.end_date >= date.today()
-        ).distinct().all()
+        ).all()
 
-        absent_count = len(absent_employee_ids)
+        # Unpack tuples and deduplicate in Python — 100% reliable
+        absent_ids_set = set(row[0] for row in absent_rows)
+
+        # Intersect with the known valid employee IDs — bulletproof
+        valid_employee_ids_set = set(employee_ids)
+        absent_count = len(absent_ids_set & valid_employee_ids_set)
 
         # 4. Calcul final
         absence_rate = (absent_count / total_dept) if total_dept > 0 else 0
