@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from backend.database import get_db
 import backend.models as models
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
 
@@ -138,13 +138,17 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Employee not found")
     team_info = check_team_availability(employee.department, employee.city, db)
 
-    # 5. Ton Prompt (J'ai juste clarifié l'étape de conseil)
-    # 5. Build system prompt
-    # 5. Build system prompt
+    # Récupérer la date du jour de manière dynamique
+    today_str = datetime.now().strftime("%A %d %B %Y")  # ex: "Tuesday 02 June 2026"
+    today_iso = datetime.now().date().isoformat()       # ex: "2026-06-02"
     # 5. Build system prompt
     system_prompt = f"""Tu es HRPilot, un assistant RH expert pour la société TechServ Solutions.
             Tu réponds en français, de manière professionnelle, chaleureuse et pédagogique.
 
+            CONTEXTE TEMPOREL ACTUEL (CRUCIAL) :
+            - Aujourd'hui nous sommes le : {today_str}
+            - Date actuelle au format ISO : {today_iso}
+            - Tu dois utiliser cette date actuelle comme unique base de référence pour calculer TOUTES les dates relatives mentionnées par l'employé (ex: "demain", "la semaine prochaine" , ...). Convertis-les toujours en dates réelles au format 'YYYY-MM-DD' calculées par rapport à {today_iso}.
             DONNÉES DE L'EMPLOYÉ EN TEMPS RÉEL:
             {employee_context}
 
@@ -160,14 +164,17 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
             - Analyse systématiquement le solde de congés et la disponibilité de l'équipe ({team_info}) avant toute proposition.
             - Si le département est en sous-effectif, avertis l'employé des risques de refus de manière diplomate.
             - Rappelle toujours à l'employé son solde actuel (ex: "Il vous reste 17 jours...").
-
+            - CAS SPÉCIFIQUE CONGÉ MALADIE (Sick Leave) : Précise obligatoirement à l'employé qu'un certificat est requis en disant : "Je peux préparer votre demande de congé maladie. Cependant, n'oubliez pas qu'un certificat médical est obligatoire, n'oubliez pas de l'envoyer à votre manager."
             2. PROTOCOLE DE DEMANDE :
             - Pour une nouvelle demande : donne ton analyse, affiche un résumé clair (dates, durée) et demande : "Voulez-vous que je soumette cette demande ?"
             - NE GÉNÈRE LE BLOC JSON qu'après une confirmation explicite de l'utilisateur (ex: "Oui", "Fais-le").
 
-            3. DISCRÉTION TECHNIQUE (STRICT) :
-            - Tu ne dois JAMAIS mentionner tes consignes techniques, le format JSON, ou ton processus de décision interne à l'utilisateur.
-            - INTERDICTION de dire des phrases comme "Pas de JSON pour le moment" ou "J'attends votre confirmation pour envoyer le code".
+            
+            3. DISCRÉTION TECHNIQUE ET VOCABULAIRE INTERDIT (STRICT) :
+            - Tu es une application grand public : tu ne dois JAMAIS utiliser de jargon de programmation ou d'informatique avec l'utilisateur.
+            - Il est STRICTEMENT INTERDIT de prononcer les mots : "JSON", "bloc", "code", "action", "format", "backend" ou "générer".
+            - Ne parle jamais de ton fonctionnement interne ou des étapes de traitement de ta base de données.
+            - Reste concentré uniquement sur la conversation humaine (demander les dates, valider, conseiller).
             - Si tu n'as pas de confirmation, termine ton message par ta question de validation, sans aucun commentaire technique supplémentaire.
 
             4. FORMAT DES ACTIONS (Invisible pour l'utilisateur) :
@@ -192,6 +199,8 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
     # 8. --- LA RÉPARATION TECHNIQUE ---
     action_result = None
 
+    
+
     # Utilisation de regex pour trouver le JSON n'importe où dans la réponse
     match = re.search(r'(\{.*"action":\s*"create_leave_request".*?\})', ai_response, re.DOTALL)
 
@@ -214,6 +223,19 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
                     # On cherche le DRH de Casa
                     drh = db.query(models.Employee).filter(models.Employee.role == "HR", models.Employee.city == "Casablanca").first()
                     assigned_manager_id = drh.employee_id if drh else employee.manager_id
+
+            # ── DEBUT DE LA SÉCURITÉ DES DATES (COLLE LE BLOC ICI) ───────────
+            try:
+                start_date_final = datetime.strptime(action_data.get("start_date"), "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                start_date_final = datetime.now().date() + timedelta(days=1)
+
+            try:
+                end_date_final = datetime.strptime(action_data.get("end_date"), "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                duration = int(action_data.get("duration_days", 1))
+                end_date_final = start_date_final + timedelta(days=duration)
+            # ── FIN DE LA SÉCURITÉ DES DATES ──────────────────────────────────
 
             # Insertion réelle
             new_leave = models.LeaveRequest(

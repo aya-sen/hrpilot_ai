@@ -41,10 +41,32 @@ def show_team_requests():
                 
                 with col1:
                     st.markdown(f"**:material/calendar_month: Période:** Du {leave['start_date']} au {leave['end_date']}")
-                    st.caption(f"ID Demande: {leave['request_id']}") 
+                    #st.caption(f"ID Demande: {leave['request_id']}") 
+
+                    # ─── 📎 INJECTION DU CERTIFICAT JUSTE ICI (EN HAUT À DROITE) ───
+                    if leave.get("leave_type") == "Sick":
+                        certif_path = leave.get("certificate_file_path")
+                        
+                        if certif_path:
+                            # URL pointant vers le backend FastAPI
+                            certificate_url = f"http://127.0.0.1:8000/{certif_path}"
+                            st.markdown(
+                                f"<div style='margin-top: 5px;'>"
+                                f"<a href='{certificate_url}' target='_blank' style='color: #000080; font-weight: bold; text-decoration: none; font-size: 0.95rem;'>"
+                                f"🔗 Consulter le justificatif fourni"
+                                f"</a>"
+                                f"</div>", 
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            # Si c'est le chatbot (image_2c8da9.png) : pas de fichier, on affiche un petit texte discret sans crasher
+                            st.caption(" *Aucun justificatif fourni (Via Assistant IA),Pensez à vérifier vos emails, l'employé a été invité à l'envoyer. *")
                 
                 with col2:
                     st.markdown(f"**:material/hourglass_empty: Durée:** {leave['duration_days']} jours")
+
+
+                    
 
                 # ─── 📊 INJECTION : INDICATEUR DE CHARGE & CAPACITÉ ───
                 if emp_dept and emp_city:

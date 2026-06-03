@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from backend.database import engine
 import backend.models as models
+from fastapi.staticfiles import StaticFiles
 from backend.routers import auth, chat, chatbot, dashboard, document_analysis, documents, employees, leaves
 
 # Create all tables in MySQL if they don't exist yet
@@ -12,6 +13,10 @@ app = FastAPI(
     description="API for HR automation system",
     version="1.0.0"
 )
+
+
+# 2. Ajoute impérativement ceci juste en dessous :
+app.mount("/files", StaticFiles(directory="files"), name="files")
 
 app.include_router(auth.router) 
 app.include_router(employees.router)   

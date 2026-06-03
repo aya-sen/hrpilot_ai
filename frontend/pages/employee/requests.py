@@ -62,7 +62,7 @@ def show_requests():
 
         with st.form("leave_form"):
             leave_type = st.selectbox("Type de congé", [
-                "Annual", "Sick", "Maternity", "Paternity", "Emergency"
+                "Annual", "Sick", "Maternity", "Emergency"
             ])
             col1, col2 = st.columns(2)
             with col1:

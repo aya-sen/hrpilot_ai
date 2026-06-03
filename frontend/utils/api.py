@@ -161,6 +161,22 @@ def clear_chat_history(employee_id: int):
     response = requests.delete(f"{BASE_URL}/chat/history/{employee_id}/clear")
     return response.json() if response.status_code == 200 else None
 
+
+def import_rules(file_name: str, file_bytes: bytes):
+    """
+    Envoie le fichier PDF du règlement intérieur au backend FastAPI
+    """
+    files = {"file": (file_name, file_bytes, "application/pdf")}
+    try:
+        response = requests.post(f"{BASE_URL}/analysis/import-rules", files=files)
+        return response
+    except requests.exceptions.ConnectionError:
+        # Gère le cas où le serveur FastAPI lui-même est éteint
+        class FakeResponse:
+            status_code = 503
+            text = "Le serveur backend FastAPI est injoignable. Veuillez vérifier qu'il est bien démarré."
+        return FakeResponse()
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════

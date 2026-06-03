@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 import json
 
+from utils.api import import_rules
+
 API_URL = "http://127.0.0.1:8000/analysis"
 
 def show_analysis():
@@ -113,7 +115,7 @@ def show_analysis():
                         val_days = st.number_input("Durée du congé (jours)", value=int(form_data.get("duration_days") or 1), step=1)
                         val_comment = st.text_area("Note de validation administrative", value=form_data.get("employee_comment") or "")
 
-                        if st.button("Confirmer et Enregistrer le Congé (Pending_HR)", use_container_width=True, type="primary", icon=":material/edit_calendar:"):
+                        if st.button("Confirmer et Enregistrer le Congé", use_container_width=True, type="primary", icon=":material/edit_calendar:"):
                             payload = {
                                 "employee_id": target_emp_id,
                                 "leave_type": val_leave_type,
@@ -278,10 +280,18 @@ def show_analysis():
             
             if rules_file is not None:
                 if st.button(":material/gavel: Analyser et Indexer le Règlement", use_container_width=True):
-                    with st.spinner("Mise à jour du règlement général..."):
-                        files = {"file": (rules_file.name, rules_file.getvalue(), "application/pdf")}
-                        r_res = requests.post(f"{API_URL}/import-rules", files=files)
+                    with st.spinner("Mise à jour du règlement général... (Cette opération peut prendre quelques secondes)"):
+                        
+                        # Appel de la fonction centralisée
+                        r_res = import_rules(rules_file.name, rules_file.getvalue())
+                        
                         if r_res.status_code == 200:
-                            st.success("Le règlement global de l'entreprise a été re-compilé et synchronisé !", icon=":material/check_circle:")
+                            st.success("Le règlement global de l'entreprise a été re-compilé, nettoyé et synchronisé !", icon=":material/check_circle:")
                         else:
-                            st.error(f"Erreur : {r_res.text}", icon=":material/error:")
+                            # Décodage propre de l'erreur JSON du backend
+                            try:
+                                error_detail = r_res.json().get("detail", r_res.text)
+                            except Exception:
+                                error_detail = r_res.text
+                            
+                            st.error(f"Erreur de communication : {error_detail}", icon=":material/error:")

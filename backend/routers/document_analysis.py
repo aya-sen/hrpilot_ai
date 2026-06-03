@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from backend.database import get_db
 import backend.models as models
-from datetime import date, datetime
+from datetime import date
 import fitz  # PyMuPDF
 import json
 import os
 import shutil
 from dotenv import load_dotenv
+from sqlalchemy import text as sql_text
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -224,7 +225,7 @@ def confirm_leave_from_analysis(payload: dict, db: Session = Depends(get_db)):
         start_date       = payload.get("start_date"),
         end_date         = payload.get("end_date"),
         duration_days    = int(payload.get("duration_days", 1)),
-        status           = "Pending_HR",
+        status           = "Pending_Manager",
         submission_date  = date.today(),
         employee_comment = payload.get("employee_comment", "Créé via analyse documentaire IA")
     )
@@ -258,7 +259,16 @@ def confirm_document_from_analysis(payload: dict, db: Session = Depends(get_db))
 @router.post("/import-rules")
 def import_rules_from_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files accepted")
+        raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont acceptés")
+    
+    import os
+    import shutil
+    import json
+    from sqlalchemy import text
+    from langchain_core.messages import SystemMessage, HumanMessage
+    from langchain_groq import ChatGroq
+    import time as python_time
+    
     
     os.makedirs("files/uploads", exist_ok=True)
     temp_path = f"files/uploads/temp_rules_{file.filename}"
@@ -267,7 +277,8 @@ def import_rules_from_pdf(file: UploadFile = File(...), db: Session = Depends(ge
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        text = extract_text_from_pdf(temp_path)
+        # Extraction du texte du PDF
+        text_content = extract_text_from_pdf(temp_path)
         
         system_prompt = """Tu es un expert RH. Extrait les règles du règlement intérieur fourni.
 Réponds UNIQUEMENT avec un JSON valide:
@@ -284,28 +295,66 @@ Extrait maximum 20 règles les plus importantes."""
 
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Règlement intérieur:\n\n{text[:4000]}")
+            HumanMessage(content=f"Règlement intérieur:\n\n{text_content[:4000]}")
         ]
         
-        response = llm.invoke(messages)
-        content = response.content.strip()
+        # ── INSTANCIATION LOCALE DU LLM POUR ÉVITER TOUT CONFLIT DE STR ──
+        # Ici, on utilise un nom de variable unique (groq_llm) pour être sûr qu'aucun 'llm' global ne vienne interférer
+        groq_llm = ChatGroq(
+            temperature=0, 
+            model_name="llama-3.3-70b-versatile"
+        )
         
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
+        response = None
+        last_error = None
+        delays = [1, 2, 4, 8, 16]
         
-        rules_data = json.loads(content.strip())
-        rules = rules_data.get("rules", [])
+        for attempt, delay in enumerate(delays):
+            try:
+                response = groq_llm.invoke(messages)
+                break  
+            except Exception as e:
+                last_error = e
+                if attempt < len(delays) - 1:
+                    python_time.sleep(delay)
+                else:
+                    raise HTTPException(
+                        status_code=502, 
+                        detail=f"Impossible de contacter l'IA après 5 essais. Erreur d'origine : {str(last_error)}"
+                    )
         
-        db.query(models.InternalRule).delete()
+        raw_content = response.content.strip()
+        
+        # Nettoyage des backticks Markdown éventuels
+        if raw_content.startswith("```"):
+            raw_content = raw_content.split("```")[1]
+            if raw_content.startswith("json"):
+                raw_content = raw_content[4:]
+        
+        try:
+            rules_data = json.loads(raw_content.strip())
+            rules = rules_data.get("rules", [])
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            raise HTTPException(
+                status_code=502, 
+                detail="L'IA a renvoyé un format de réponse invalide. Veuillez réessayer."
+            )
+        
+        # Vider la table de manière propre avec le mot-clé d'importation 'text'
+        try:
+            db.execute(text("TRUNCATE TABLE internal_rules"))
+            db.commit()
+        except Exception:
+            db.rollback()
+            db.execute(text("TRUNCATE TABLE internal_rule"))
+            db.commit()
         
         inserted = 0
         for rule in rules:
             new_rule = models.InternalRule(
                 category = rule.get("category", "Autre"),
-                title    = rule.get("title", "Sans titre"),
-                content  = rule.get("content", "")
+                title    = rule.get("title", "Sans titre").strip(),
+                content  = rule.get("content", "").strip()
             )
             db.add(new_rule)
             inserted += 1
@@ -317,8 +366,11 @@ Extrait maximum 20 règles les plus importantes."""
             "rules_imported": inserted,
             "categories": list(set(r.get("category") for r in rules))
         }
-    
+        
+    except HTTPException as he:
+        raise he
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if os.path.exists(temp_path):

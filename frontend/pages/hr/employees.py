@@ -83,7 +83,7 @@ def show_employees():
                                        ["Tous","Employee","Manager","HR"])
         with col4:
             search = st.text_input(":material/search: Rechercher",
-                                   placeholder="Nom ou email...")
+                                   placeholder="Nom")
     else:
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -96,7 +96,7 @@ def show_employees():
                                        ["Tous","Employee","Manager","HR"])
         with col3:
             search = st.text_input(":material/search: Rechercher",
-                                   placeholder="Nom ou email...")
+                                   placeholder="Nom")
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     filtered = employees
