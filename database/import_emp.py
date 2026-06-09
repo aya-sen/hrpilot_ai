@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, text
 
 # ── Connection ────────────────────────────────────────────────────────────────
 engine = create_engine(
-    "mysql+pymysql://root:YOUR_PASSWORD_HERE@localhost:3306/hrpilot_db"
+    "mysql+pymysql://root:1234@localhost:3306/hrpilot_db"
 )
 
 # ── Step 1: Clear any partial data from previous attempts ─────────────────────

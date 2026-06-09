@@ -44,7 +44,7 @@ def show_team_profiles():
     # ── 2. CALCUL DYNAMIQUE DES STATUTS (Sur l'équipe filtrée) ────────────────
     total_team = len(filtered_team)
     count_active = sum(1 for m in filtered_team if m.get("status") == "Active")
-    count_leave = sum(1 for m in filtered_team if m.get("status") == "On Leave")
+    count_leave = sum(1 for m in filtered_team if m.get("status") == "On leave")
     count_resigned = sum(1 for m in filtered_team if m.get("status") == "Resigned")
 
     # Ligne d'info globale avec icônes (Remise au propre ici)
@@ -56,7 +56,7 @@ def show_team_profiles():
 
     # ── 3. SÉPARATION DES LISTES FILTRÉES PAR CATÉGORIE ───────────────────────
     active_members = [m for m in filtered_team if m.get("status") == "Active"]
-    leave_members = [m for m in filtered_team if m.get("status") == "On Leave"]
+    leave_members = [m for m in filtered_team if m.get("status") == "On leave"]
     resigned_members = [m for m in filtered_team if m.get("status") == "Resigned"]
 
     # ── 4. CRÉATION DES ONGLETS (TABS) ────────────────────────────────────────

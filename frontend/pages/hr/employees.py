@@ -10,8 +10,8 @@ def edit_employee_dialog(emp):
     
     new_status = st.selectbox(
         "Statut",
-        ["Active", "On Leave", "Resigned"],
-        index=["Active", "On Leave", "Resigned"].index(emp.get("status", "Active"))
+        ["Active", "On leave", "Resigned"],
+        index=["Active", "On leave", "Resigned"].index(emp.get("status", "Active"))
     )
     new_phone = st.text_input("Téléphone", value=emp.get("phone_number") or "")
     new_salary = st.number_input("Salaire (MAD)", value=float(emp.get("salary") or 0), step=500.0)
@@ -125,7 +125,7 @@ def show_employees():
     
     # (Adapte "On Leave" ou "Active" si les mots exacts dans ta base sont différents)
     count_active = sum(1 for e in filtered if e.get("status") == "Active")
-    count_leave = sum(1 for e in filtered if e.get("status") == "On Leave")
+    count_leave = sum(1 for e in filtered if e.get("status") == "On leave")
     
     # Construction de la ligne d'information avec les icônes Streamlit
     status_text = (

@@ -21,7 +21,7 @@ class Employee(Base):
     hire_date = Column(Date, nullable=False)
     salary = Column(Numeric(10, 2), nullable=False)
     leave_balance_days = Column(Integer, nullable=False, default=28)
-    status = Column(Enum('Active', 'On Leave', 'Resigned'), nullable=False, default='Active')
+    status = Column(Enum('Active', 'On Leave','On leave', 'Resigned'), nullable=False, default='Active')
     role = Column(Enum('Employee', 'Manager', 'HR'), nullable=True, default='Employee')
     
 
