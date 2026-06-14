@@ -258,5 +258,3 @@ def upload_certificate(request_id: int, file: UploadFile = File(...), db: Sessio
         "request_id": request_id,
         "file_path": file_path
     }
-
-

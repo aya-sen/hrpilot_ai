@@ -33,7 +33,6 @@ llm = ChatGroq(
     model_name="llama-3.3-70b-versatile",
     temperature=0.3
 )
-
 # ── Get employee context from DB ──────────────────────────────────────────────
 def get_employee_context(employee_id: int, db: Session) -> str:
     employee = db.query(models.Employee).filter(
@@ -42,6 +41,25 @@ def get_employee_context(employee_id: int, db: Session) -> str:
 
     if not employee:
         return "Employé non trouvé."
+
+    # ── 🛠️ QUICK PROTOTYPE FIX FOR CHATBOT BALANCE ──
+    from datetime import datetime
+    current_year = datetime.now().year
+    
+    # Calculate approved days taken ONLY in 2026
+    approved_leaves_this_year = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.employee_id == employee_id,
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date >= f"{current_year}-01-01",
+        models.LeaveRequest.end_date <= f"{current_year}-12-31"
+    ).all()
+    
+    days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
+    
+    # Force the baseline allocation to 18 to match home/profile interfaces
+    LEGAL_BASE_ALLOCATION = 18
+    solde_current_year = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
+    # ────────────────────────────────────────────────
 
     # Get pending requests
     pending_leaves = db.query(models.LeaveRequest).filter(
@@ -63,13 +81,14 @@ PROFIL DE L'EMPLOYÉ:
 - Type de contrat: {employee.contract_type}
 - Date d'embauche: {employee.hire_date}
 - Salaire mensuel brut: {employee.salary} MAD
-- Solde de congés disponible: {employee.leave_balance_days} jours
+- Solde de congés disponible: {solde_current_year} jours
 - Statut: {employee.status}
 - Rôle: {employee.role}
 - Demandes de congé en attente: {pending_leaves}
 - Demandes de documents en attente: {pending_docs}
 """
     return context
+
 
 # ── Get relevant rules from DB ────────────────────────────────────────────────
 def get_relevant_rules(question: str, db: Session) -> str:
@@ -166,7 +185,7 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
             - Rappelle toujours à l'employé son solde actuel (ex: "Il vous reste 17 jours...").
             - CAS SPÉCIFIQUE CONGÉ MALADIE (Sick Leave) : Précise obligatoirement à l'employé qu'un certificat est requis en disant : "Je peux préparer votre demande de congé maladie. Cependant, n'oubliez pas qu'un certificat médical est obligatoire, n'oubliez pas de l'envoyer à votre manager."
             2. PROTOCOLE DE DEMANDE :
-            - Pour une nouvelle demande : donne ton analyse, affiche un résumé clair (dates, durée) et demande : "Voulez-vous que je soumette cette demande ?"
+            - Pour une nouvelle demande : donne ton analyse, affiche un résumé clair (dates, durée).
             - NE GÉNÈRE LE BLOC JSON qu'après une confirmation explicite de l'utilisateur (ex: "Oui", "Fais-le").
 
             
@@ -203,6 +222,29 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
 
     # Utilisation de regex pour trouver le JSON n'importe où dans la réponse
     match = re.search(r'(\{.*"action":\s*"create_leave_request".*?\})', ai_response, re.DOTALL)
+    match_doc = re.search(r'(\{.*"action":\s*"create_document_request".*?\})', ai_response, re.DOTALL)
+
+    if match_doc:
+        try:
+            action_data = json.loads(match_doc.group(1))
+
+            new_request = models.DocumentRequest(
+                employee_id=employee_id,
+                document_type=action_data.get("document_type", "Attestation de travail"),
+                purpose=action_data.get("purpose", "Analyse documentaire IA"),
+                status="Pending",
+                request_date=datetime.now().date(),
+            )
+
+            db.add(new_request)
+            db.commit()
+            db.refresh(new_request)
+
+            action_result = "Demande de document créée avec succès"
+            clean_ai_response = ai_response.replace(match_doc.group(1), "").strip()
+            ai_response = clean_ai_response + f"\n\n ✅ **Système :** {action_result}"
+        except Exception as e:
+            print(f"Erreur DB (document request): {e}")
 
     if match:
         try:
@@ -276,3 +318,4 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
         "action_taken": action_result,
         "timestamp": datetime.now().isoformat()
     }
+

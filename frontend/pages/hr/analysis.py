@@ -7,43 +7,59 @@ from utils.api import import_rules
 API_URL = "http://127.0.0.1:8000/analysis"
 
 def show_analysis():
-    # Global verification clear notification 
+    # Notification claire en cas de succès global
     if "analysis_success" in st.session_state:
         st.success(st.session_state["analysis_success"], icon=":material/verified:")
         del st.session_state["analysis_success"]
 
     st.title(":material/analytics: Analyse de Documents par l'IA")
-    st.subheader("Extraction intelligente et routage automatique d'actions")
+    st.subheader("Extraction cognitive, classification et traitement assisté")
     st.divider()
 
-    # Get secure context from current HR login profile
+    # Récupération du contexte sécurisé de l'utilisateur RH connecté
     hr_city = st.session_state.get("city", "Casablanca")
     st.markdown(f"**Zone d'administration active :** :material/location_on: `{hr_city}`")
 
-    # Check if the logged-in HR is from the main headquarters (Casablanca)
+    # Vérification des privilèges du Siège Social (Casablanca)
     if hr_city.lower() == "casablanca":
         tab1, tab2 = st.tabs([":material/cloud_upload: Justificatif Unique", ":material/folder_open: Importer Règlement"])
     else:
-        # Non-HQ cities only see the document analysis tool
         tab1 = st.container()
         tab2 = None
         st.info("Les politiques globales de l'entreprise sont gérées centralement par le siège de Casablanca.", icon=":material/hub:")
 
     # ── TAB 1: RUNNING AI FILE CLASSIFICATION ────────────────────────────────
     with tab1:
-        st.markdown("#### Déposer un justificatif externe ou un formulaire administratif (.pdf)")
-        uploaded_file = st.file_uploader("Fichier PDF cible", type=["pdf"], key="analysis_doc_pdf")
+        st.markdown("#### Déposer un document externe (Ex: Certificat médical, CV, Contrat...)")
+        
+        # Initialisation d'une clé d'uploader dynamique en session pour pouvoir le forcer à se vider
+        if "uploader_key" not in st.session_state:
+            st.session_state["uploader_key"] = 1000
 
-        if uploaded_file is not None:
+        uploaded_file = st.file_uploader(
+            "Fichier PDF cible", 
+            type=["pdf"], 
+            key=f"analysis_doc_pdf_{st.session_state['uploader_key']}"
+        )
+
+        # 🚨 SÉCURITÉ ANTI-FANTÔME : Si l'utilisateur clique sur le "X", on nettoie instantanément l'affichage
+        if uploaded_file is None:
+            if "active_analysis" in st.session_state:
+                del st.session_state["active_analysis"]
+            if "analysis_success" in st.session_state:
+                del st.session_state["analysis_success"]
+
+        # L'analyse ne se lance que si un fichier est présent ET qu'aucune analyse n'est déjà en mémoire
+        if uploaded_file is not None and "active_analysis" not in st.session_state:
             if st.button(":material/robot: Lancer l'analyse cognitive", type="primary", use_container_width=True):
-                with st.spinner("Extraction OCR et traitement Llama-3..."):
+                with st.spinner("Extraction de texte et traitement Llama-3..."):
                     try:
                         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-                        # Pass HR city via URL query string to enforce backend security isolation
                         response = requests.post(f"{API_URL}/upload?hr_city={hr_city}", files=files)
                         
                         if response.status_code == 200:
                             st.session_state["active_analysis"] = response.json()
+                            st.rerun()  # On force le rafraîchissement pour afficher le résultat proprement
                         else:
                             st.error(f"Erreur d'analyse : {response.text}")
                     except Exception as e:
@@ -53,30 +69,29 @@ def show_analysis():
         if "active_analysis" in st.session_state:
             res = st.session_state["active_analysis"]
             
-            # Scenario A: Security violation returned by backend
+            # Scénario de restriction de sécurité par ville
             if res.get("status") == "security_restricted":
                 st.error(res.get("message"), icon=":material/gavel:")
-                if st.button("Effacer l'analyse"):
+                if st.button("Effacer l'analyse", icon=":material/delete:"):
                     del st.session_state["active_analysis"]
+                    st.session_state["uploader_key"] += 1  # Incrémenter la clé vide instantanément le file_uploader
                     st.rerun()
                 return
 
             st.divider()
             
-            # Create a dictionary to map code strings to clean text
+            # Mapping mis à jour avec notre nouvelle logique
             action_mapping = {
-                "create_leave_request": "Demande de Congé",
-                "create_document_request": "Demande de Document",
-                "manual_handling": "Traitement Manuel Recommandé"
+                "create_leave_request": "Traitement Automatique (Congé)",
+                "read_and_summarize": "Lecture & Analyse Consultative"
             }
             raw_action = res.get("suggested_action")
             clean_action_phrase = action_mapping.get(raw_action, raw_action)
 
-            # Render descriptive payload items safely using Markdown to prevent text clipping (...)
-            # Render descriptive payload items safely using Markdown to prevent text clipping (...)
+            # Affichage des indicateurs de l'IA
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown("**Type Détecté**")
+                st.markdown("**Type de Document**")
                 st.markdown(f"<p style='font-size:20px; font-weight:bold; color:#1f77b4;'>{res.get('document_type', 'Inconnu')}</p>", unsafe_allow_html=True)
             with c2:
                 confidence_score = res.get("confidence", "Low")
@@ -84,32 +99,30 @@ def show_analysis():
                 color = "#2ca02c" if confidence_score == "High" else "#d62728"
                 st.markdown(f"<p style='font-size:20px; font-weight:bold; color:{color};'>{confidence_score}</p>", unsafe_allow_html=True)
             with c3:
-                st.markdown("**Action Proposée**")
-                st.markdown(f"<p style='font-size:20px; font-weight:bold; color:#1f77b4;'>{clean_action_phrase}</p>", unsafe_allow_html=True)
+                st.markdown("**Orientation Métier**")
+                st.markdown(f"<p style='font-size:20px; font-weight:bold; color:#ff7f0e;'>{clean_action_phrase}</p>", unsafe_allow_html=True)
 
-            st.info(f"**Résumé de l'IA :** {res.get('summary')}")
+            st.info(f"**Résumé analytique de l'IA :** {res.get('summary')}")
 
-            # Splitting structural forms dynamically based on prefilled values
             form_data = res.get("prefilled_form")
             matched_emp = res.get("matched_employee")
 
-            # ── CASE 1 & 2: AUTOMATED AI ROUTING PATHS ───────────────────────
-            if clean_action_phrase != "Traitement Manuel Recommandé":
+            # ── MODE 1: AUTOMATED AI ROUTING PATH (Certificats Médicaux / Congés) ──
+            if raw_action == "create_leave_request":
                 with st.container(border=True):
-                    st.markdown("### :material/edit_note: Formulaire de validation")
+                    st.markdown("### :material/edit_note: Formulaire d'Enregistrement Automatisé")
                     
                     if not matched_emp:
-                        st.warning("L'IA n'a trouvé aucun profil d'employé correspondant dans votre base de données locale. Veuillez saisir l'ID manuellement.", icon=":material/person_search:")
+                        st.warning("L'IA n'a trouvé aucun profil correspondant dans la base de données locale. Saisie de l'ID requise.", icon=":material/person_search:")
                         target_emp_id = st.number_input("ID de l'employé concerné", value=0, step=1)
                     else:
-                        st.success(f"Employé Identifié : **{matched_emp['name']}** `(ID: {matched_emp['employee_id']} - {matched_emp['department']})`", icon=":material/badge:")
+                        st.success(f"Employé Identifié d'office : **{matched_emp['name']}** `(ID: {matched_emp['employee_id']} - {matched_emp['department']})`", icon=":material/badge:")
                         target_emp_id = matched_emp['employee_id']
 
-                    # ACTION TYPE A: LEAVE PROCESSING
                     if form_data and form_data.get("type") == "leave_request":
-                        st.caption("Action : Création automatisée d'une demande de congé d'absence")
+                        st.caption("Action : Soumission directe de l'arrêt maladie extrait par le LLM")
                         
-                        val_leave_type = st.selectbox("Catégorie de congé", ["Sick", "Annual", "Maternity", "Unpaid"], index=0 if form_data.get("leave_type") == "Sick" else 1)
+                        val_leave_type = st.selectbox("Catégorie de congé", ["Sick", "Annual", "Maternity", "Unpaid"], index=0)
                         val_start = st.text_input("Date de début (AAAA-MM-JJ)", value=form_data.get("start_date") or "")
                         val_end = st.text_input("Date de fin (AAAA-MM-JJ)", value=form_data.get("end_date") or "")
                         val_days = st.number_input("Durée du congé (jours)", value=int(form_data.get("duration_days") or 1), step=1)
@@ -126,37 +139,42 @@ def show_analysis():
                             }
                             conf = requests.post(f"{API_URL}/confirm-leave", json=payload)
                             if conf.status_code == 200:
-                                st.session_state["analysis_success"] = "La demande de congé a été insérée directement dans le circuit de validation !"
+                                st.session_state["analysis_success"] = "Le congé maladie extrait par l'IA a été enregistré avec succès !"
                                 del st.session_state["active_analysis"]
                                 st.rerun()
                             else:
                                 st.error(conf.text, icon=":material/error:")
 
-                    # ACTION TYPE B: DOCUMENT REQUEST LOGGING
-                    elif form_data and form_data.get("type") == "document_request":
-                        st.caption("Action : Création automatisée d'une demande de pièce administrative")
-                        
-                        val_doc_type = st.text_input("Intitulé du document requis", value=form_data.get("document_type") or "Attestation de travail")
-                        val_purpose = st.text_input("Motif d'édition spécifié", value=form_data.get("purpose") or "Usage Personnel")
-
-                        if st.button("Confirmer et Ouvrir la Demande de Document", use_container_width=True, type="primary", icon=":material/description:"):
-                            payload = {
-                                "employee_id": target_emp_id,
-                                "document_type": val_doc_type,
-                                "purpose": val_purpose
-                            }
-                            conf = requests.post(f"{API_URL}/confirm-document", json=payload)
-                            if conf.status_code == 200:
-                                st.session_state["analysis_success"] = "La demande de document a été ajoutée et générée avec succès !"
-                                del st.session_state["active_analysis"]
-                                st.rerun()
-                            else:
-                                st.error(conf.text, icon=":material/error:")
-
-           # ── CASE 3: FALLBACK MANUAL SEARCH & DROPDOWN WORKFLOW ───────────
+           
+            # ── MODE 2: CONSULTATIVE / ASSISTED WORKFLOW (CV, Contrats, Courriers) ──
             else:
-                st.warning("L'IA n'a pas pu automatiser ce document. Veuillez utiliser la saisie manuelle ci-dessous.", icon=":material/gavel:")
-                st.markdown("### Saisie Manuelle Administrative")
+                st.success("Analyse consultative terminée. Aucune action automatisée en base de données n'est requise pour ce type de document.", icon=":material/info:")
+                
+                with st.expander(":material/content_paste_search: Visualiser les informations extraites par l'IA", expanded=True):
+                    extracted = res.get("extracted_data", {})
+                    if extracted:
+                        # Extraction des clés de manière propre et élégante
+                        emp_name = extracted.get("employee_name")
+                        purpose_text = extracted.get("purpose")
+                        extra_details = extracted.get("any_other_relevant_field")
+
+                        # Affichage structuré en langage naturel avec les icônes Material
+                        if emp_name and emp_name != "NULL":
+                            st.markdown(f":material/person: **Identité détectée :** {emp_name}")
+
+                        if purpose_text and purpose_text != "NULL":
+                            st.markdown(f":material/target: **Objectif / Motif identifié :** {purpose_text}")
+
+                        if extra_details and extra_details != "NULL":
+                            st.markdown(f":material/description: **Éléments contextuels clés :** {extra_details}")
+                            
+                        if not any([emp_name, purpose_text, extra_details]) or all(v == "NULL" for v in [emp_name, purpose_text, extra_details]):
+                            st.caption("Aucune entité structurelle spécifique n'a été isolée dans ce document.")
+                    else:
+                        st.caption("Aucune donnée structurelle spécifique n'a été extraite.")
+
+                st.markdown("### Action RH Alternative (Saisie Manuelle)")
+                st.caption("Si ce document nécessite tout de même une action administrative, utilisez le sélecteur ci-dessous :")
                 
                 BASE_URL = API_URL.replace("/analysis", "") 
                 employees_list = []
@@ -165,45 +183,25 @@ def show_analysis():
                     emp_res = requests.get(f"{BASE_URL}/employees", headers={"X-City": hr_city})
                     if emp_res.status_code == 200:
                         raw_list = emp_res.json()
-                        
-                        # Let's inspect the first employee safely to see what the city key actually is
                         city_key = "city"
                         if raw_list and isinstance(raw_list[0], dict):
                             sample = raw_list[0]
-                            if "branch" in sample:
-                                city_key = "branch"
-                            elif "ville" in sample:
-                                city_key = "ville"
+                            if "branch" in sample: city_key = "branch"
+                            elif "ville" in sample: city_key = "ville"
                         
-                        # STRICT LOCAL FILTER: Keep only workers in the logged-in HR manager's city
-                        employees_list = [
-                            e for e in raw_list 
-                            if str(e.get(city_key, "")).strip().lower() == hr_city.strip().lower()
-                        ]
-                        
-                        # Micro-debug note to confirm filtering is working live
-                        st.caption(f"Filtré localement : {len(employees_list)} employés trouvés pour la zone `{hr_city}` (sur {len(raw_list)} au total).")
+                        # Filtre local strict par filiale
+                        employees_list = [e for e in raw_list if str(e.get(city_key, "")).strip().lower() == hr_city.strip().lower()]
+                        st.caption(f"Filtré localement : {len(employees_list)} employés trouvés pour la zone `{hr_city}`.")
                     else:
-                        st.error(f"Erreur backend ({emp_res.status_code}) lors du chargement des employés.", icon=":material/database_error:")
+                        st.error(f"Erreur backend ({emp_res.status_code}) lors du chargement.", icon=":material/database_error:")
                 except Exception as e:
                     st.error("Impossible de se connecter à la table des employés.", icon=":material/cloud_off:")
 
-                # ── RENDER FILTERED DROPDOWN ─────────────────────────────────
                 col_emp, col_doc = st.columns(2)
-                
                 with col_emp:
                     if employees_list:
-                        emp_map = {
-                            f"{e['first_name']} {e['last_name']} (ID: {e['employee_id']} - {e.get('department', 'N/A')})": e 
-                            for e in employees_list
-                        }
-                        
-                        selected_name = st.selectbox(
-                            "Rechercher un employé (Tapez pour filtrer)",
-                            options=[""] + list(emp_map.keys()),
-                            index=0,
-                            placeholder="Saisissez un prénom ou nom..."
-                        )
+                        emp_map = {f"{e['first_name']} {e['last_name']} (ID: {e['employee_id']} - {e.get('department', 'N/A')})": e for e in employees_list}
+                        selected_name = st.selectbox("Rechercher un employé local", options=[""] + list(emp_map.keys()), index=0, placeholder="Saisissez un nom...")
                         chosen_employee = emp_map.get(selected_name)
                     else:
                         st.error(f"Aucun employé disponible pour la filiale {hr_city}.", icon=":material/person_off:")
@@ -211,64 +209,66 @@ def show_analysis():
                 
                 with col_doc:
                     manual_form_type = st.selectbox("Type de formulaire à ouvrir", options=["Demande de Document", "Demande de Congé"])
-                    
+                
                 st.write("---")
 
-                # Show visual confirmation if an employee is selected from the filter
                 if chosen_employee:
-                    st.success(f"Employé sélectionné : **{chosen_employee['first_name']} {chosen_employee['last_name']}** `(ID: {chosen_employee['employee_id']} - {chosen_employee['department']})`", icon=":material/badge:")
-
-                # 3. DYNAMICALLY RENDER THE SPECIFIC FORM
-                if chosen_employee:
+                    st.success(f"Employé sélectionné : **{chosen_employee['first_name']} {chosen_employee['last_name']}**", icon=":material/badge:")
+                    
                     if manual_form_type == "Demande de Document":
                         st.markdown(f"#### Formulaire : Création de Document Administratif")
                         doc_type = st.selectbox("Type de document requis", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie", "Lettre de conge"])
-                        purpose = st.text_input("Motif d'édition spécifié", value="Saisie manuelle RH")
+                        purpose = st.text_input("Motif d'édition spécifié", value="Saisie manuelle suite à relecture de pièce")
                         
-                        if st.button("Confirmer et Ouvrir la Demande de Document", use_container_width=True, icon=":material/description:"):
+                        if st.button("Confirmer et Générer le Document", use_container_width=True, icon=":material/description:"):
                             payload = {"employee_id": chosen_employee["employee_id"], "document_type": doc_type, "purpose": purpose}
-                            with st.spinner("Génération..."):
-                                res = requests.post(f"{API_URL}/confirm-document", json=payload)
-                                if res.status_code == 200:
-                                    st.session_state["analysis_success"] = "Le document a été généré manuellement avec succès !"
-                                    del st.session_state["active_analysis"]
-                                    st.rerun()
-                                else:
-                                    st.error(f"Erreur : {res.text}", icon=":material/error:")
+                            res_doc = requests.post(f"{API_URL}/confirm-document", json=payload)
+                            if res_doc.status_code == 200:
+                                st.session_state["analysis_success"] = "Le document requis a été consigné manuellement avec succès !"
+                                del st.session_state["active_analysis"]
+                                st.rerun()
+                            else:
+                                st.error(f"Erreur : {res_doc.text}", icon=":material/error:")
 
                     elif manual_form_type == "Demande de Congé":
                         st.markdown(f"#### Formulaire : Enregistrement d'Absence / Congé")
                         leave_type = st.selectbox("Type de congé", ["Sick", "Annual", "Maternity", "Unpaid"])
                         c_col1, c_col2 = st.columns(2)
-                        with c_col1:
-                            start_date = st.date_input("Date de début")
-                        with c_col2:
-                            end_date = st.date_input("Date de fin")
+                        with c_col1: start_date = st.date_input("Date de début")
+                        with c_col2: end_date = st.date_input("Date de fin")
                             
                         duration = st.number_input("Durée (Jours)", min_value=1, value=1, step=1)
-                        comment = st.text_area("Commentaire / Justification", value="Saisie manuelle suite à absence")
+                        comment = st.text_area("Commentaire / Justification", value="Enregistré manuellement après analyse de pièce")
                         
-                        if st.button("Confirmer et Enregistrer le Congé", use_container_width=True, icon=":material/edit_calendar:"):
+                        if st.button("Confirmer et Enregistrer le Congé Manuel", use_container_width=True, icon=":material/edit_calendar:"):
                             payload = {
                                 "employee_id": chosen_employee["employee_id"], "leave_type": leave_type,
                                 "start_date": str(start_date), "end_date": str(end_date),
                                 "duration_days": duration, "employee_comment": comment
                             }
-                            with st.spinner("Enregistrement..."):
-                                res = requests.post(f"{API_URL}/confirm-leave", json=payload)
-                                if res.status_code == 200:
-                                    st.session_state["analysis_success"] = "La demande de congé manuelle a été enregistrée !"
-                                    del st.session_state["active_analysis"]
-                                    st.rerun()
-                                else:
-                                    st.error(f"Erreur : {res.text}", icon=":material/error:")
-                else:
-                    if employees_list:
-                        st.info("Veuillez sélectionner le nom d'un employé dans la barre de recherche pour faire apparaître le formulaire associé.", icon=":material/arrow_upward:")
+                            res_leave = requests.post(f"{API_URL}/confirm-leave", json=payload)
+                            if res_leave.status_code == 200:
+                                st.session_state["analysis_success"] = "La demande de congé manuelle a été enregistrée !"
+                                del st.session_state["active_analysis"]
+                                st.rerun()
+                            else:
+                                i = st.error(f"Erreur : {res_leave.text}", icon=":material/error:")
 
-            if st.button("Annuler et rejeter l'analyse", use_container_width=True):
-                del st.session_state["active_analysis"]
-                st.rerun()
+                # ── BOUTON ANNULER CORRIGÉ ET SÉCURISÉ ───────────────────────────────
+                if st.button("Annuler et rejeter l'analyse actuelle", use_container_width=True, icon=":material/cancel:", type="secondary"):
+                    # 1. Suppression des états d'analyse
+                    if "active_analysis" in st.session_state:
+                        del st.session_state["active_analysis"]
+                    if "analysis_success" in st.session_state:
+                        del st.session_state["analysis_success"]
+                    
+                    # 2. Forcer le changement de clé de l'uploader pour tout vider d'un coup
+                    if "uploader_key" not in st.session_state:
+                        st.session_state["uploader_key"] = 1000
+                    st.session_state["uploader_key"] += 1
+                    
+                    # 3. Rechargement propre de l'interface graphique
+                    st.rerun()
 
     # ── TAB 2: BULK COMPANY POLICIES UPLOADER ────────────────────────────────
     if tab2 is not None:
@@ -280,18 +280,11 @@ def show_analysis():
             
             if rules_file is not None:
                 if st.button(":material/gavel: Analyser et Indexer le Règlement", use_container_width=True):
-                    with st.spinner("Mise à jour du règlement général... (Cette opération peut prendre quelques secondes)"):
-                        
-                        # Appel de la fonction centralisée
+                    with st.spinner("Mise à jour du règlement général..."):
                         r_res = import_rules(rules_file.name, rules_file.getvalue())
-                        
                         if r_res.status_code == 200:
-                            st.success("Le règlement global de l'entreprise a été re-compilé, nettoyé et synchronisé !", icon=":material/check_circle:")
+                            st.success("Le règlement global de l'entreprise a été synchronisé !", icon=":material/check_circle:")
                         else:
-                            # Décodage propre de l'erreur JSON du backend
-                            try:
-                                error_detail = r_res.json().get("detail", r_res.text)
-                            except Exception:
-                                error_detail = r_res.text
-                            
+                            try: error_detail = r_res.json().get("detail", r_res.text)
+                            except Exception: error_detail = r_res.text
                             st.error(f"Erreur de communication : {error_detail}", icon=":material/error:")

@@ -38,35 +38,36 @@ def extract_text_from_pdf(file_path: str) -> str:
 
 # ── Analyze document with AI ──────────────────────────────────────────────────
 def analyze_with_ai(text: str) -> dict:
-    system_prompt = """Tu es un assistant spécialisé dans l'analyse de documents RH marocains.
+    system_prompt = """Tu es un assistant spécialisé dans la qualification et l'analyse de documents RH marocains.
     
 Analyse le document fourni et réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après.
 
 Format de réponse obligatoire:
 {
-  "document_type": "type du document",
+  "document_type": "Type précis du document",
   "confidence": "High/Medium/Low",
   "extracted_data": {
-    "employee_name": "nom complet ou null",
+    "employee_name": "nom complet détecté ou null",
     "start_date": "YYYY-MM-DD ou null",
     "end_date": "YYYY-MM-DD ou null", 
     "duration_days": nombre ou null,
-    "purpose": "objet/raison ou null",
+    "purpose": "objet, poste cible, ou raison principale ou null",
     "doctor_name": "nom médecin ou null",
-    "salary_amount": nombre ou null,
-    "any_other_relevant_field": "valeur ou null"
+    "any_other_relevant_field": "éléments clés textuels extraits ou null"
   },
-  "suggested_action": "create_leave_request / create_document_request / manual_handling",
-  "summary": "résumé en 2 phrases de ce document"
+  "suggested_action": "create_leave_request / read_and_summarize",
+  "summary": "résumé clair et métier de ce document (ex: CV de X pour le poste Y)"
 }
 
-Types de documents possibles:
-- Certificat médical
-- Attestation de travail
-- Attestation de salaire
-- Bulletin de paie
-- Lettre de conge
-- Document non reconnu
+Règles strictes pour "document_type" :
+1. Sois dynamique et précis : Tu n'es pas limité à une liste fixe. Si le document est un accord de confidentialité, écris "Accord de confidentialité". Si c'est un rapport, écris "Rapport".
+2. Différence cruciale entre CV et Lettre de Motivation :
+   - Si le document est rédigé sous forme de lettre administrative (ex: "Objet: Candidature", "Madame, Monsieur", corps de texte), qualifie-le impérativement de "Lettre de motivation" ou "Lettre de candidature".
+   - Ne le qualifie de "Curriculum Vitae (CV)" QUE s'il s'agit d'un profil structuré avec des listes d'expériences et de formations.
+
+Règles pour "suggested_action":
+- "create_leave_request" : Uniquement si le document implique directement un arrêt, une absence ou un congé médical (Certificat médical, Lettre de demande de congé).
+- "read_and_summarize" : Pour TOUS les autres documents (CV, Lettre de motivation, Contrat, Bulletin de paie, etc.). L'objectif est d'informer le RH sans créer d'absence automatique.
 """
 
     messages = [
@@ -138,32 +139,21 @@ def upload_and_analyze(
         
         analysis = analyze_with_ai(text)
 
-        # 🟢 ADD THIS SHORT 5-LINE CHECK HERE:
-        if analysis.get("document_type") == "Document non reconnu" or analysis.get("suggested_action") == "manual_handling":
-            return {
-                "status": "success",
-                "document_type": "Document non reconnu",
-                "confidence": "Low",
-                "summary": "Ce document n'est pas un formulaire standard reconnu par l'application.",
-                "matched_employee": None,
-                "suggested_action": "manual_handling",
-                "prefilled_form": None
-            }
-
-
+        # Extraction de l'employé si l'IA trouve un nom
         employee_name = analysis.get("extracted_data", {}).get("employee_name")
         matched_employee = find_employee_by_name(employee_name, db)
         
-        # SECURITY CITY ENFORCEMENT CHECK
+        # SÉCURITÉ : Vérification de la restriction par ville si un employé connu est matché
         if matched_employee and matched_employee.city.lower() != hr_city.lower():
             return {
                 "status": "security_restricted",
                 "message": f"Employee found ('{matched_employee.first_name} {matched_employee.last_name}') but access is restricted. They belong to {matched_employee.city}, while your access scope is restricted to {hr_city}.",
                 "document_type": analysis.get("document_type"),
-                "suggested_action": "manual_handling"
+                "suggested_action": "read_and_summarize"
             }
 
         prefilled_form = None
+        # Déclenchement automatique de formulaire UNIQUEMENT pour les congés/certificats
         if analysis.get("suggested_action") == "create_leave_request" and matched_employee:
             prefilled_form = {
                 "type": "leave_request",
@@ -176,15 +166,7 @@ def upload_and_analyze(
                 "employee_comment": analysis["extracted_data"].get("purpose", "Document analysé par IA")
             }
         
-        elif analysis.get("suggested_action") == "create_document_request" and matched_employee:
-            prefilled_form = {
-                "type": "document_request",
-                "employee_id": matched_employee.employee_id,
-                "employee_name": f"{matched_employee.first_name} {matched_employee.last_name}",
-                "document_type": analysis.get("document_type"),
-                "purpose": analysis["extracted_data"].get("purpose", "Extrait depuis document")
-            }
-        
+        # Retour complet et unifié pour l'interface utilisateur
         return {
             "status": "success",
             "document_type": analysis.get("document_type"),

@@ -19,7 +19,7 @@ def get_all_employees(db: Session = Depends(get_db)):
     return employees
 
 # ── Get one employee by ID ────────────────────────────────────────────────────
-@router.get("/{employee_id}", response_model=EmployeeResponse)
+@router.get("/{employee_id}")  # 💡 Tip: Removed response_model so it accepts our custom dynamic dict
 def get_employee(employee_id: int, db: Session = Depends(get_db)):
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == employee_id
@@ -30,7 +30,31 @@ def get_employee(employee_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Employee {employee_id} not found"
         )
-    return employee
+    
+    # 1. Compute approved leave days taken ONLY in the current year (2026)
+    from datetime import datetime
+    current_year = datetime.now().year
+    
+    approved_leaves_this_year = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.employee_id == employee_id,
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date >= f"{current_year}-01-01",
+        models.LeaveRequest.end_date <= f"{current_year}-12-31"
+    ).all()
+    
+    days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
+    
+    # 2. Use the standard Moroccan legal baseline (18 days) for the prototype
+    LEGAL_BASE_ALLOCATION = 18
+    solde_2026 = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
+    
+    # 3. Convert the SQLAlchemy object to a dictionary to safely swap the value
+    employee_dict = {c.name: getattr(employee, c.name) for c in employee.__table__.columns}
+    
+    # 4. Overwrite the field before sending it to the frontend!
+    employee_dict['leave_balance_days'] = solde_2026
+    
+    return employee_dict
 
 # ── Get employees by department ───────────────────────────────────────────────
 @router.get("/department/{department}", response_model=List[EmployeeResponse])
