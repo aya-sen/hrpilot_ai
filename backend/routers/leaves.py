@@ -4,7 +4,7 @@ from backend.database import get_db
 from backend.schemas import LeaveRequestCreate, LeaveRequestResponse
 import backend.models as models
 from typing import List
-from datetime import date
+from datetime import date, datetime
 from fastapi import UploadFile, File
 import shutil
 import os
@@ -76,9 +76,16 @@ def submit_leave(employee_id: int, request: LeaveRequestCreate, db: Session = De
 # ── Get my requests (Employee) ────────────────────────────────────────────────
 @router.get("/my-requests/{employee_id}", response_model=List[LeaveRequestResponse])
 def get_my_requests(employee_id: int, db: Session = Depends(get_db)):
+    # Récupère l'année en cours de manière dynamique (2026)
+    current_year = datetime.now().year
+    
+    # Filtre les requêtes de l'employé pour l'année en cours uniquement
     requests = db.query(models.LeaveRequest).filter(
-        models.LeaveRequest.employee_id == employee_id
+        models.LeaveRequest.employee_id == employee_id,
+        models.LeaveRequest.start_date >= f"{current_year}-01-01",
+        models.LeaveRequest.start_date <= f"{current_year}-12-31"
     ).all()
+    
     return requests
 
 # ── Get pending requests for manager ─────────────────────────────────────────
@@ -192,7 +199,6 @@ def hr_approve(request_id: int, db: Session = Depends(get_db)):
     }
 
 
-# ── Check team availability (for chatbot) ────────────────────────────────────
 # ── Check team availability (for chatbot & UI) ────────────────────────────────────
 @router.get("/team-availability/{department}")
 def check_team_availability(

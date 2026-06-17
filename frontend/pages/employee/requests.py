@@ -151,7 +151,7 @@ def show_my_requests():
     """, unsafe_allow_html=True)
 
 
-    st.title(":material/history: Soumettre une demande")
+    st.title(":material/history: Suivi de mes demandes")
     st.divider()
 
     employee_id = st.session_state.employee_id

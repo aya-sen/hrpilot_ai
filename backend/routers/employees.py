@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -12,11 +14,36 @@ router = APIRouter(
     tags=["Employees"]
 )
 
+# ── Fonction d'aide pour recalculer le solde de chaque employé ────────────────
+def _fix_employee_solde(employee, db: Session):
+    current_year = datetime.now().year
+    
+    # 1. Calculer les jours pris et approuvés en 2026 uniquement
+    approved_leaves_this_year = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.employee_id == employee.employee_id,
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date >= f"{current_year}-01-01",
+        models.LeaveRequest.end_date <= f"{current_year}-12-31"
+    ).all()
+    
+    days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
+    
+    # 2. Appliquer la base de 26 jours fixée par le règlement intérieur
+    LEGAL_BASE_ALLOCATION = 26
+    solde_2026 = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
+    
+    # 3. Convertir l'objet SQLAlchemy en dictionnaire pour modifier le champ
+    employee_dict = {c.name: getattr(employee, c.name) for c in employee.__table__.columns}
+    employee_dict['leave_balance_days'] = solde_2026
+    
+    return employee_dict
+
 # ── Get all employees (HR only) ───────────────────────────────────────────────
-@router.get("/", response_model=List[EmployeeResponse])
+@router.get("/") # 💡 Tip: Retiré le response_model pour envoyer nos dictionnaires modifiés
 def get_all_employees(db: Session = Depends(get_db)):
     employees = db.query(models.Employee).all()
-    return employees
+    # On applique la correction à chaque employé de la liste
+    return [_fix_employee_solde(emp, db) for emp in employees]
 
 # ── Get one employee by ID ────────────────────────────────────────────────────
 @router.get("/{employee_id}")  # 💡 Tip: Removed response_model so it accepts our custom dynamic dict
@@ -45,7 +72,7 @@ def get_employee(employee_id: int, db: Session = Depends(get_db)):
     days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
     
     # 2. Use the standard Moroccan legal baseline (18 days) for the prototype
-    LEGAL_BASE_ALLOCATION = 18
+    LEGAL_BASE_ALLOCATION = 26
     solde_2026 = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
     
     # 3. Convert the SQLAlchemy object to a dictionary to safely swap the value
@@ -57,20 +84,22 @@ def get_employee(employee_id: int, db: Session = Depends(get_db)):
     return employee_dict
 
 # ── Get employees by department ───────────────────────────────────────────────
-@router.get("/department/{department}", response_model=List[EmployeeResponse])
+@router.get("/department/{department}")
 def get_by_department(department: str, db: Session = Depends(get_db)):
     employees = db.query(models.Employee).filter(
         models.Employee.department == department
     ).all()
-    return employees
+    # On applique la correction à chaque employé de la liste
+    return [_fix_employee_solde(emp, db) for emp in employees]
 
 # ── Get team of a manager ─────────────────────────────────────────────────────
-@router.get("/manager/{manager_id}/team", response_model=List[EmployeeResponse])
+@router.get("/manager/{manager_id}/team")
 def get_manager_team(manager_id: int, db: Session = Depends(get_db)):
     team = db.query(models.Employee).filter(
         models.Employee.manager_id == manager_id
     ).all()
-    return team
+    # On applique la correction à chaque membre de l'équipe
+    return [_fix_employee_solde(emp, db) for emp in team]
 
 # ── Update employee (HR only) ─────────────────────────────────────────────────
 @router.put("/{employee_id}/status")

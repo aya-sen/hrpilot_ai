@@ -57,7 +57,7 @@ def get_employee_context(employee_id: int, db: Session) -> str:
     days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
     
     # Force the baseline allocation to 18 to match home/profile interfaces
-    LEGAL_BASE_ALLOCATION = 18
+    LEGAL_BASE_ALLOCATION = 26
     solde_current_year = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
     # ────────────────────────────────────────────────
 
@@ -120,31 +120,50 @@ def get_chat_history(employee_id: int, db: Session, limit: int = 6):
     
     return list(reversed(messages))
 
-# ── Check team availability ───────────────────────────────────────────────────
-def check_team_availability(department: str, city: str, db: Session) -> str:
+# ── Check team availability (Sécurisée et flexible) ───────────────────────────
+def check_team_availability(department: str, city: str, db: Session, start_date: str = None, end_date: str = None) -> str:
     
-    # Count approved absences in same dept AND same city
-    approved_absences = db.query(models.LeaveRequest).join(
+    # 1. On prépare la requête de base
+    query = db.query(models.LeaveRequest).join(
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
     ).filter(
         models.Employee.department == department,
-        models.Employee.city       == city,        # ← ADD THIS
+        models.Employee.city       == city,
         models.LeaveRequest.status == "Approved"
-    ).count()
+    )
+    
+    # 2. On applique le filtre de dates UNIQUEMENT si elles sont fournies
+    if start_date and end_date:
+        query = query.filter(
+            models.LeaveRequest.start_date <= end_date,
+            models.LeaveRequest.end_date   >= start_date
+        )
+        period_text = "en cours sur cette période"
+    else:
+        # Si pas de dates (comme au premier message), on regarde le jour même en 2026
+        from datetime import date
+        today_str = date.today().isoformat()
+        query = query.filter(
+            models.LeaveRequest.start_date <= today_str,
+            models.LeaveRequest.end_date   >= today_str
+        )
+        # 💡 REMPLACE "aujourd'hui" PAR "actuellement" ou "sur la période en cours"
+        period_text = "sur la période en cours"
+
+    approved_absences = query.count()
 
     team_size = db.query(models.Employee).filter(
         models.Employee.department == department,
-        models.Employee.city       == city          # ← ADD THIS
+        models.Employee.city       == city
     ).count()
 
     if team_size == 0:
         return f"Vous êtes le seul membre de {department} à {city}."
 
     return (
-        f"Département {department} à {city} : "
-        f"{team_size} membres, "
-        f"{approved_absences} absence(s) approuvée(s) actuellement."
+        f"Le département {department} à {city} compte actuellement {team_size} membres, "
+        f"avec {approved_absences} absence(s) approuvée(s) {period_text}."
     )
 # ── Main chat endpoint ────────────────────────────────────────────────────────
 @router.post("/message")
@@ -155,7 +174,11 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
     employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    team_info = check_team_availability(employee.department, employee.city, db)
+    team_info = check_team_availability(
+        department=employee.department, 
+        city=employee.city, 
+        db=db
+    )
 
     # Récupérer la date du jour de manière dynamique
     today_str = datetime.now().strftime("%A %d %B %Y")  # ex: "Tuesday 02 June 2026"
