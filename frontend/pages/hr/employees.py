@@ -1,5 +1,11 @@
+from datetime import date
+
 import streamlit as st
 from utils.api import get_all_employees, get_employee, update_employee_status
+
+if "form_version" not in st.session_state:
+    st.session_state["form_version"] = 0
+    
 
 # ── 1. DIALOG MODAL FUNCTION ──────────────────────────────────────────────────
 # This decorator creates a clean popup window when the user clicks "Modifier"
@@ -10,8 +16,8 @@ def edit_employee_dialog(emp):
     
     new_status = st.selectbox(
         "Statut",
-        ["Active", "On leave", "Resigned"],
-        index=["Active", "On leave", "Resigned"].index(emp.get("status", "Active"))
+        ["Active", "On Leave", "Resigned"],
+        index=["Active", "On Leave", "Resigned"].index(emp.get("status", "Active"))
     )
     new_phone = st.text_input("Téléphone", value=emp.get("phone_number") or "")
     new_salary = st.number_input("Salaire (MAD)", value=float(emp.get("salary") or 0), step=500.0)
@@ -42,6 +48,7 @@ def edit_employee_dialog(emp):
 
 # ── 2. MAIN INTERFACE FUNCTION ────────────────────────────────────────────────
 def show_employees():
+
     st.title(":material/group: Gestion des Employés")
     st.divider()
 
@@ -125,7 +132,7 @@ def show_employees():
     
     # (Adapte "On Leave" ou "Active" si les mots exacts dans ta base sont différents)
     count_active = sum(1 for e in filtered if e.get("status") == "Active")
-    count_leave = sum(1 for e in filtered if e.get("status") == "On leave")
+    count_leave = sum(1 for e in filtered if e.get("status") == "On Leave")
     
     # Construction de la ligne d'information avec les icônes Streamlit
     status_text = (
@@ -231,7 +238,14 @@ def show_employees():
     st.subheader(":material/person_add: Ajouter un nouvel employé")
     st.info("Le mot de passe par défaut sera **Password123!** — l'employé devra le changer à sa première connexion.", icon=":material/lightbulb:")
 
-    with st.form("add_employee_form"):
+    # 1. On initialise la version du formulaire dans le state si elle n'existe pas
+    if "form_version" not in st.session_state:
+        st.session_state["form_version"] = 0
+
+    from datetime import date
+
+    # 2. On donne une clé dynamique au formulaire pour pouvoir le détruire/recréer à vide
+    with st.form(key=f"add_employee_form_v_{st.session_state['form_version']}"):
         col1, col2 = st.columns(2)
         with col1:
             first_name    = st.text_input("Prénom *")
@@ -239,7 +253,11 @@ def show_employees():
             email         = st.text_input("Email *", placeholder="prenom.nom@techserv.ma")
             phone         = st.text_input("Téléphone")
             gender        = st.selectbox("Genre", ["Male", "Female"])
-            birth_date    = st.date_input("Date de naissance")
+            birth_date    = st.date_input(
+                "Date de naissance",
+                min_value=date(1900, 1, 1),
+                max_value=date.today()
+            )
         with col2:
             city          = st.selectbox("Ville *", ["Casablanca", "Rabat", "Tanger"])
             department    = st.selectbox("Département *", [
@@ -275,7 +293,20 @@ def show_employees():
                 "role":          role
             })
             if result:
-                st.success(f"Employé {first_name} {last_name} ajouté avec succès !", icon=":material/check_circle:")
+                # 1. On affiche le message de succès
+                success_box = st.success(f"Employé {first_name} {last_name} ajouté avec succès !", icon=":material/check_circle:")
+                
+                # 2. On attend 2 secondes
+                import time
+                time.sleep(2)
+                
+                # 3. On fait disparaître le bandeau vert
+                success_box.empty()
+                
+                # 4. 🔥 On change la version : Streamlit va créer un formulaire tout neuf et VIDE !
+                st.session_state["form_version"] += 1
+                
+                # 5. On recharge la page pour appliquer le changement
                 st.rerun()
             else:
                 st.error("Erreur — email déjà existant ou données invalides.", icon=":material/error:")

@@ -171,40 +171,54 @@ def change_password(employee_id: int, old_password: str,
     db.commit()
     return {"message": "Mot de passe modifié avec succès"}
 
+from datetime import datetime  # À ajouter en haut de ton fichier backend
 
 @router.post("/add")
 def add_employee(data: dict, db: Session = Depends(get_db)):
-
-    # Check email doesn't exist
-    existing = db.query(models.Employee).filter(
-        models.Employee.email == data.get("email")
-    ).first()
+    # 1. Vérification e-mail (déjà présent)
+    existing = db.query(models.Employee).filter(models.Employee.email == data.get("email")).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    # Hash default password
+    # 2. Hash du mot de passe (déjà présent)
     default_hash = bcrypt_lib.hashpw(
         "Password123!".encode('utf-8'),
         bcrypt_lib.gensalt()
     ).decode('utf-8')
 
+    # ── 🛠️ RECHERCHE AUTOMATIQUE DU MANAGER DU DÉPARTEMENT ──
+    detected_manager_id = None
+    # Si le nouvel inscrit est un simple "Employee", il lui faut un manager
+    if data.get("role") == "Employee":
+        # On cherche le premier employé qui est "Manager" ET dans le même département
+        dept_manager = db.query(models.Employee).filter(
+            models.Employee.department == data.get("department"),
+            models.Employee.role == "Manager",
+            models.Employee.status == "Active" # Optionnel : s'il est actif
+        ).first()
+        
+        if dept_manager:
+            detected_manager_id = dept_manager.employee_id
+    # ────────────────────────────────────────────────────────
+
     new_emp = models.Employee(
-        first_name        = data.get("first_name"),
-        last_name         = data.get("last_name"),
-        email             = data.get("email"),
-        password_hash     = default_hash,
-        phone_number      = data.get("phone_number"),
-        gender            = data.get("gender"),
-        birth_date        = data.get("birth_date"),
-        city              = data.get("city"),
-        department        = data.get("department"),
-        position          = data.get("position"),
-        contract_type     = data.get("contract_type"),
-        hire_date         = data.get("hire_date"),
-        salary            = data.get("salary"),
-        leave_balance_days = 28,
-        status            = "Active",
-        role              = data.get("role", "Employee")
+        first_name         = data.get("first_name"),
+        last_name          = data.get("last_name"),
+        email              = data.get("email"),
+        password_hash      = default_hash,
+        phone_number       = data.get("phone_number"),
+        gender             = data.get("gender"),
+        birth_date         = data.get("birth_date"),
+        city               = data.get("city"),
+        department         = data.get("department"),
+        position           = data.get("position"),
+        contract_type      = data.get("contract_type"),
+        hire_date          = data.get("hire_date"),
+        salary             = data.get("salary"),
+        leave_balance_days = 26,
+        status             = "Active",
+        role               = data.get("role", "Employee"),
+        manager_id         = detected_manager_id  # <-- REMPLACE data.get("manager_id") PAR NOTRE VARIABLE AUTO !
     )
 
     db.add(new_emp)
@@ -212,10 +226,10 @@ def add_employee(data: dict, db: Session = Depends(get_db)):
     db.refresh(new_emp)
 
     return {
-        "message":     "Employee added successfully",
-        "employee_id": new_emp.employee_id,
-        "email":       new_emp.email
+        "message": "Employee added successfully",
+        "employee_id": new_emp.employee_id
     }
+
 
 @router.put("/{employee_id}/update")
 def update_employee(employee_id: int, data: dict, db: Session = Depends(get_db)):

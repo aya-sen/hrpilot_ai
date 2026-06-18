@@ -79,7 +79,7 @@ def get_leaves_pressure_summer(city: str, db: Session = Depends(get_db)):
 
             pending_requests = db.query(models.LeaveRequest.employee_id).distinct().filter(
                 models.LeaveRequest.employee_id.in_(sub_emp_query), # Utilise la sous-requête filtrée ici
-                models.LeaveRequest.status == "Pending",
+                models.LeaveRequest.status == "Pending_Manager",
                 extract('month', models.LeaveRequest.start_date) == m,
                 extract('year', models.LeaveRequest.start_date) == 2026
             ).count()
@@ -94,30 +94,37 @@ def get_leaves_pressure_summer(city: str, db: Session = Depends(get_db)):
             
     return pressure_data
 
+from datetime import datetime
+from sqlalchemy import extract
+
 @router.get("/leaves-by-type/{city}")
 def get_leaves_by_type(city: str, db: Session = Depends(get_db)):
-    # 1. On initialise la base de la requête avec le JOIN indispensable
+    # 1. On récupère automatiquement l'année actuelle du serveur
+    current_year = datetime.now().year
+
+    # 2. On initialise la base de la requête avec la jointure indispensable
+    # et on filtre dynamiquement sur l'année en cours
     query = db.query(
         models.LeaveRequest.leave_type,
         func.count(models.LeaveRequest.request_id).label("count")
     ).join(
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
+    ).filter(
+        extract('year', models.LeaveRequest.start_date) == current_year
     )
 
-    # 2. On applique le filtre de ville SEULEMENT si ce n'est pas "all"
+    # 3. On applique le filtre de ville SEULEMENT si ce n'est pas "all"
     if city != "all":
         query = query.filter(models.Employee.city == city)
 
-    # 3. On groupe et on exécute
+    # 4. On groupe et on exécute
     results = query.group_by(models.LeaveRequest.leave_type).all()
     
     return [{"leave_type": r.leave_type, "count": r.count} for r in results]
-
 # ══════════════════════════════════════════════════════════════════════════════
 # SMART FEATURES — BURNOUT & PREDICTIONS
 # ══════════════════════════════════════════════════════════════════════════════
-
 @router.get("/burnout-risk/{city}")
 def get_burnout_risk(city: str, db: Session = Depends(get_db)):
     six_months_ago = date.today() - timedelta(days=180)
@@ -136,6 +143,10 @@ def get_burnout_risk(city: str, db: Session = Depends(get_db)):
     all_employees = query.all()
 
     at_risk = []
+    
+    # --- AJOUT SÉCURITÉ ANNÉE EN COURS ---
+    from datetime import datetime
+    current_year = datetime.now().year
 
     for emp in all_employees:
         # Check if they have any approved leave in last 6 months
@@ -152,12 +163,28 @@ def get_burnout_risk(city: str, db: Session = Depends(get_db)):
                 models.LeaveRequest.status == "Approved"
             ).order_by(models.LeaveRequest.start_date.desc()).first()
 
+            # ── 🛠️ CALCUL DYNAMIQUE DU SOLDE POUR L'ANNÉE EN COURS ──
+            # On cherche uniquement les congés approuvés de l'année en cours
+            approved_leaves_this_year = db.query(models.LeaveRequest).filter(
+                models.LeaveRequest.employee_id == emp.employee_id,
+                models.LeaveRequest.status == "Approved",
+                models.LeaveRequest.start_date >= f"{current_year}-01-01",
+                models.LeaveRequest.end_date <= f"{current_year}-12-31"
+            ).all()
+            
+            days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
+            
+            # Allocation de base légale (26 jours) moins les jours pris cette année
+            LEGAL_BASE_ALLOCATION = 26
+            solde_current_year = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
+            # ────────────────────────────────────────────────────────
+
             at_risk.append({
                 "employee_id": emp.employee_id,
                 "name": f"{emp.first_name} {emp.last_name}",
                 "department": emp.department,
                 "city": emp.city,
-                "leave_balance": emp.leave_balance_days,
+                "leave_balance": solde_current_year,  # <-- On utilise le solde corrigé ici !
                 "last_leave": str(last_leave.start_date) if last_leave else "Jamais",
                 "risk_level": "High" if not last_leave else "Medium",
                 "recommendation": f"{emp.first_name} n'a pas pris de congé depuis 6+ mois."

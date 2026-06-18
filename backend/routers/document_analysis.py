@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -8,7 +10,7 @@ import json
 import os
 import shutil
 from dotenv import load_dotenv
-from sqlalchemy import text as sql_text
+from sqlalchemy import or_, text as sql_text
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -86,28 +88,36 @@ Règles pour "suggested_action":
     
     return json.loads(content)
 
-# ── Find employee by name ─────────────────────────────────────────────────────
+
+
 def find_employee_by_name(name: str, db: Session):
     if not name:
         return None
+
+    # 1. Nettoyage : Supprimer les titres de civilité et ponctuation
+    # On supprime Mme, M., Dr., Madame, Monsieur, etc.
+    titles_pattern = r"\b(Mme|M\.|Madame|Monsieur|Dr\.|Mlle|Mr\.|M\b)"
+    cleaned_name = re.sub(titles_pattern, "", name, flags=re.IGNORECASE)
     
-    parts = name.strip().split()
+    # 2. Découpage intelligent
+    parts = cleaned_name.strip().split()
     if len(parts) < 2:
         return None
+
+    # 3. Recherche flexible
+    # On cherche le prénom et le nom indépendamment pour éviter les problèmes d'ordre
+    first, last = parts[0], parts[-1]
     
     employee = db.query(models.Employee).filter(
-        models.Employee.first_name.ilike(f"%{parts[0]}%"),
-        models.Employee.last_name.ilike(f"%{parts[-1]}%")
+        or_(
+            # Cas 1 : Prénom et Nom dans l'ordre
+            (models.Employee.first_name.ilike(f"%{first}%") & models.Employee.last_name.ilike(f"%{last}%")),
+            # Cas 2 : Inversion (Nom Prénom)
+            (models.Employee.first_name.ilike(f"%{last}%") & models.Employee.last_name.ilike(f"%{first}%"))
+        )
     ).first()
     
-    if not employee:
-        employee = db.query(models.Employee).filter(
-            models.Employee.first_name.ilike(f"%{parts[-1]}%"),
-            models.Employee.last_name.ilike(f"%{parts[0]}%")
-        ).first()
-    
     return employee
-
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -143,6 +153,7 @@ def upload_and_analyze(
         employee_name = analysis.get("extracted_data", {}).get("employee_name")
         matched_employee = find_employee_by_name(employee_name, db)
         
+        print(f"DEBUG: Cherché nom: '{employee_name}', Trouvé: {matched_employee}")
         # SÉCURITÉ : Vérification de la restriction par ville si un employé connu est matché
         if matched_employee and matched_employee.city.lower() != hr_city.lower():
             return {

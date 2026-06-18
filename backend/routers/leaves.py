@@ -98,16 +98,16 @@ def get_pending_for_manager(manager_id: int, db: Session = Depends(get_db)):
     return requests
 
 
+from sqlalchemy import func
+from datetime import datetime
+
 # ── Get pending requests for HR ───────────────────────────────────────────────
-@router.get("/pending-hr/{city}")  # 💡 Tip: Temporarily remove response_model so it accepts custom dict structures
+@router.get("/pending-hr/{city}")
 def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
+    # 1. On récupère les demandes ET l'ID de l'employé
     results = db.query(
         models.LeaveRequest,
-        models.Employee.first_name,
-        models.Employee.last_name,
-        models.Employee.department,
-        models.Employee.city,
-        models.Employee.leave_balance_days
+        models.Employee
     ).join(
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
@@ -116,9 +116,22 @@ def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
         models.Employee.city == city
     ).all()
     
-    # Bundle data into a structured list of dictionaries
     formatted_requests = []
-    for leave, fname, lname, dept, emp_city, balance in results:
+    current_year = datetime.now().year # 2026
+    LEGAL_BASE_ALLOCATION = 26
+
+    for leave, emp in results:
+        # 2. Calcul dynamique des jours pris cette année uniquement
+        jours_pris = db.query(func.sum(models.LeaveRequest.duration_days)).filter(
+            models.LeaveRequest.employee_id == emp.employee_id,
+            models.LeaveRequest.status == "Approved",
+            models.LeaveRequest.start_date >= f"{current_year}-01-01",
+            models.LeaveRequest.end_date <= f"{current_year}-12-31"
+        ).scalar() or 0
+        
+        solde_calcule = max(LEGAL_BASE_ALLOCATION - jours_pris, 0)
+
+        # 3. On ajoute au dictionnaire
         formatted_requests.append({
             "request_id": leave.request_id,
             "employee_id": leave.employee_id,
@@ -129,11 +142,11 @@ def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
             "status": leave.status,
             "submission_date": str(leave.submission_date) if leave.submission_date else "—",
             "employee_comment": leave.employee_comment if hasattr(leave, 'employee_comment') else "",
-            "first_name": fname,
-            "last_name": lname,
-            "department": dept,
-            "city": emp_city,
-            "leave_balance_days": balance
+            "first_name": emp.first_name,
+            "last_name": emp.last_name,
+            "department": emp.department,
+            "city": emp.city,
+            "leave_balance_days": solde_calcule # 🔥 Le solde est maintenant à jour !
         })
         
     return formatted_requests

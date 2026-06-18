@@ -51,7 +51,7 @@ def show_documents():
             
             with col1:
                 st.markdown(f"#### {doc_icon} {doc_type}")
-                st.markdown(f"**:material/person: Employé :** {emp_name} `(ID: {emp_id})` &nbsp;|&nbsp; **:material/fingerprint: Demande :** `{doc_request_id}`")
+                st.markdown(f"**:material/person: Employé :** {emp_name}")
                 st.markdown(f"**:material/calendar_today: Date Soumission :** {doc.get('request_date', '—')}")
                 st.markdown(f"**:material/ads_click: Motif Spécifié :** *{doc.get('purpose') or 'Non spécifié.'}*")
                 

@@ -112,11 +112,27 @@ def show_analysis():
                 with st.container(border=True):
                     st.markdown("### :material/edit_note: Formulaire d'Enregistrement Automatisé")
                     
+                    # ── MODIFICATION : REMPLACER LE CHAMPS ID PAR LE SÉLECTEUR ──
                     if not matched_emp:
-                        st.warning("L'IA n'a trouvé aucun profil correspondant dans la base de données locale. Saisie de l'ID requise.", icon=":material/person_search:")
-                        target_emp_id = st.number_input("ID de l'employé concerné", value=0, step=1)
+                        st.warning("L'identification automatique a échoué. Veuillez sélectionner l'employé :", icon=":material/person_search:")
+                        
+                        # Récupération de la liste des employés (comme tu le fais dans ton bloc "Action RH Alternative")
+                        emp_res = requests.get(f"{BASE_URL}/employees", headers={"X-City": hr_city})
+                        if emp_res.status_code == 200:
+                            employees_list = [e for e in emp_res.json() if str(e.get("city", "")).strip().lower() == hr_city.lower()]
+                            emp_map = {f"{e['first_name']} {e['last_name']} (ID: {e['employee_id']})": e for e in employees_list}
+                            
+                            selected_name = st.selectbox("Rechercher l'employé", options=[""] + list(emp_map.keys()))
+                            if selected_name:
+                                chosen_employee = emp_map[selected_name]
+                                target_emp_id = chosen_employee['employee_id']
+                            else:
+                                target_emp_id = None
+                        else:
+                            target_emp_id = None
                     else:
-                        st.success(f"Employé Identifié d'office : **{matched_emp['name']}** `(ID: {matched_emp['employee_id']} - {matched_emp['department']})`", icon=":material/badge:")
+                        # Cas où l'IA a réussi
+                        st.success(f"Employé Identifié : **{matched_emp['name']}**", icon=":material/badge:")
                         target_emp_id = matched_emp['employee_id']
 
                     if form_data and form_data.get("type") == "leave_request":

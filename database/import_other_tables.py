@@ -8,8 +8,8 @@ engine = create_engine(
 )
 
 # ── File paths ────────────────────────────────────────────────────────────────
-LEAVE_PATH    = r"C:\Users\user\Desktop\PFE project\DB\leave_requests.csv"
-DOC_PATH      = r"C:\Users\user\Desktop\PFE project\DB\document_requests.csv"
+LEAVE_PATH    = r"C:\Users\user\Desktop\PFE project\DB\leave_request.csv"
+DOC_PATH      = r"C:\Users\user\Desktop\PFE project\DB\document_request.csv"
 
 # ── Helper function ───────────────────────────────────────────────────────────
 def import_table(df, table_name, conn):
@@ -18,8 +18,8 @@ def import_table(df, table_name, conn):
     print(f"✅ {table_name}: {len(df)} rows imported")
 
 # ── Read the 2 required files with semicolon separator ────────────────────────
-df_leave = pd.read_csv(LEAVE_PATH, sep=';')
-df_doc   = pd.read_csv(DOC_PATH,   sep=';', encoding='latin-1')
+df_leave = pd.read_csv(LEAVE_PATH, sep=',')
+df_doc   = pd.read_csv(DOC_PATH,   sep=',', encoding='latin-1')
 
 print(f"leave_requests (CSV):    {len(df_leave)} rows")
 print(f"document_requests (CSV): {len(df_doc)} rows")
@@ -31,7 +31,7 @@ with engine.connect() as conn:
     conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
     conn.execute(text("DELETE FROM leave_request;"))
     conn.execute(text("DELETE FROM document_request;"))
-    conn.execute(text("DELETE FROM chat_history;"))  # On s'assure qu'elle est bien vide
+    conn.execute(text("TRUNCATE TABLE chat_history;"))  # On s'assure qu'elle est bien vide
     conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
     conn.commit()
     print("✅ Tables secondaires vidées proprement")

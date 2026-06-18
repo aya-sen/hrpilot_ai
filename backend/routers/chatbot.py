@@ -33,7 +33,6 @@ llm = ChatGroq(
     model_name="llama-3.3-70b-versatile",
     temperature=0.3
 )
-# ── Get employee context from DB ──────────────────────────────────────────────
 def get_employee_context(employee_id: int, db: Session) -> str:
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == employee_id
@@ -42,11 +41,10 @@ def get_employee_context(employee_id: int, db: Session) -> str:
     if not employee:
         return "Employé non trouvé."
 
-    # ── 🛠️ QUICK PROTOTYPE FIX FOR CHATBOT BALANCE ──
     from datetime import datetime
     current_year = datetime.now().year
     
-    # Calculate approved days taken ONLY in 2026
+    # Ton code de calcul de solde actuel (Inchangé)
     approved_leaves_this_year = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.employee_id == employee_id,
         models.LeaveRequest.status == "Approved",
@@ -55,13 +53,9 @@ def get_employee_context(employee_id: int, db: Session) -> str:
     ).all()
     
     days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
-    
-    # Force the baseline allocation to 18 to match home/profile interfaces
     LEGAL_BASE_ALLOCATION = 26
     solde_current_year = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
-    # ────────────────────────────────────────────────
 
-    # Get pending requests
     pending_leaves = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.employee_id == employee_id,
         models.LeaveRequest.status.in_(["Pending_Manager", "Pending_HR"])
@@ -72,8 +66,9 @@ def get_employee_context(employee_id: int, db: Session) -> str:
         models.DocumentRequest.status == "Pending"
     ).count()
 
+    # 1. Infos privées de l'utilisateur connecté (Toujours incluses)
     context = f"""
-PROFIL DE L'EMPLOYÉ:
+PROFIL DE L'EMPLOYÉ CONNECTÉ:
 - Nom complet: {employee.first_name} {employee.last_name}
 - Département: {employee.department}
 - Poste: {employee.position}
@@ -86,6 +81,26 @@ PROFIL DE L'EMPLOYÉ:
 - Rôle: {employee.role}
 - Demandes de congé en attente: {pending_leaves}
 - Demandes de documents en attente: {pending_docs}
+"""
+
+    # 2. SEULEMENT POUR RH ET MANAGER : Extraction de TOUTE la liste des effectifs de sa zone
+    if employee.role in ["HR", "Manager"]:
+        is_drh_global = (employee.city.lower() == "all" or employee.position.lower() == "drh")
+        
+        query_staff = db.query(models.Employee)
+        if not is_drh_global:
+            query_staff = query_staff.filter(models.Employee.city == employee.city)
+            
+        all_staff = query_staff.all()
+        
+        # Construction d'un tableau texte brut de TOUS les employés pour que l'IA puisse répondre à TOUT
+        staff_list_text = ""
+        for emp in all_staff:
+            staff_list_text += f"- {emp.first_name} {emp.last_name} | Poste: {emp.position} | Dept: {emp.department} | Contrat: {emp.contract_type} | Ville: {emp.city} | Salaire: {emp.salary} MAD | Statut: {emp.status}\n"
+
+        context += f"""
+[ACCÈS AUTORISÉ RH/MANAGER - LISTE COMPLÈTE DES EFFECTIFS SOUS VOTRE GESTION]
+{staff_list_text}
 """
     return context
 
@@ -184,7 +199,18 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
     today_str = datetime.now().strftime("%A %d %B %Y")  # ex: "Tuesday 02 June 2026"
     today_iso = datetime.now().date().isoformat()       # ex: "2026-06-02"
     # 5. Build system prompt
-    system_prompt = f"""Tu es HRPilot, un assistant RH expert pour la société TechServ Solutions.
+    role_security_instruction = ""
+    if employee.role not in ["HR", "Manager"]:
+        role_security_instruction = """
+        [CONSIGNE DE CONFIDENTIALITÉ STRICTE] : Tu t'adresses à un employé standard. Tu as interdiction absolue de lui parler des autres employés, de donner leurs noms, leurs contrats, ou de confirmer qui travaille dans l'entreprise. S'il te demande des informations générales sur les effectifs ou sur d'autres personnes, refuse poliment en disant que tu es son assistant personnel et que ces données sont confidentielles.
+        """
+    else:
+        role_security_instruction = """
+        [ACCÈS AUTORISÉ DIRECTION/RH] : Tu t'adresses à un gestionnaire (RH ou Manager). Tu es son outil d'aide à la décision. Utilise la "LISTE COMPLÈTE DES EFFECTIFS" fournie dans le contexte pour répondre à toutes ses questions (statistiques, listes, conseils de management, salaires, profils).
+        """
+
+    system_prompt = f"""{role_security_instruction}
+    Tu es HRPilot, un assistant RH expert pour la société TechServ Solutions.
             Tu réponds en français, de manière professionnelle, chaleureuse et pédagogique.
 
             CONTEXTE TEMPOREL ACTUEL (CRUCIAL) :
@@ -205,7 +231,7 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
             1. ANALYSE ET CONSEIL RH :
             - Analyse systématiquement le solde de congés et la disponibilité de l'équipe ({team_info}) avant toute proposition.
             - Si le département est en sous-effectif, avertis l'employé des risques de refus de manière diplomate.
-            - Rappelle toujours à l'employé son solde actuel (ex: "Il vous reste 17 jours...").
+            - Si l'employé connecté parle de sa propre situation, rappelle-lui toujours son solde actuel (ex: "Il vous reste 17 jours..."). S'il s'agit d'un RH/Manager qui demande des informations sur un tiers, ne mentionne pas le solde de l'interlocuteur connecté.
             - CAS SPÉCIFIQUE CONGÉ MALADIE (Sick Leave) : Précise obligatoirement à l'employé qu'un certificat est requis en disant : "Je peux préparer votre demande de congé maladie. Cependant, n'oubliez pas qu'un certificat médical est obligatoire, n'oubliez pas de l'envoyer à votre manager."
             2. PROTOCOLE DE DEMANDE :
             - Pour une nouvelle demande : donne ton analyse, affiche un résumé clair (dates, durée).
