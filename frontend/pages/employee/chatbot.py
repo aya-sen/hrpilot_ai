@@ -82,7 +82,6 @@ def show_chatbot():
             **Vous pouvez me demander :**
             * :material/beach_access: Votre solde de congés
             * :material/description: Une attestation de travail
-            * :material/assignment_ind: Le statut de vos demandes
             * :material/menu_book: Des questions sur le règlement intérieur
             """)
 

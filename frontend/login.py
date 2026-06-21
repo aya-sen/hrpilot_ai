@@ -93,7 +93,7 @@ def show_login():
             # --- TA LOGIQUE D'AUTHENTIFICATION INTÉGRÉE ICI ---
             if submit:
                 if not email or not password:
-                    st.error("⚠️ Veuillez remplir tous les champs.")
+                    st.error("Veuillez remplir tous les champs.")
                 else:
                     with st.spinner("Vérification en cours..."):
                         result = login(email, password)
@@ -106,13 +106,13 @@ def show_login():
                         st.session_state.last_name   = result["last_name"]
                         st.session_state.city        = result["city"]
                         st.session_state.department  = result["department"]
-                        st.success(f"✅ Bienvenue {result['first_name']} !")
+                        st.success(f"Bienvenue {result['first_name']} !")
                         st.rerun()
                     else:
-                        st.error("❌ Email ou mot de passe incorrect.")
+                        st.error("Email ou mot de passe incorrect.")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            st.info("💡 Mot de passe par défaut : **Password123!**")
+            st.info("**Password123!**")
             
             st.markdown("""
                 <div style="display: flex; align-items: center; margin: 20px 0;">

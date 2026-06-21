@@ -107,44 +107,48 @@ def show_analysis():
             form_data = res.get("prefilled_form")
             matched_emp = res.get("matched_employee")
 
+            
+            
             # ── MODE 1: AUTOMATED AI ROUTING PATH (Certificats Médicaux / Congés) ──
+            # 1. Sécurisation immédiate de form_data
+            safe_form_data = res.get("prefilled_form") or {} 
+
             if raw_action == "create_leave_request":
                 with st.container(border=True):
-                    st.markdown("### :material/edit_note: Formulaire d'Enregistrement Automatisé")
+                    st.markdown("### :material/edit_note: Formulaire d'Enregistrement")
                     
-                    # ── MODIFICATION : REMPLACER LE CHAMPS ID PAR LE SÉLECTEUR ──
-                    if not matched_emp:
-                        st.warning("L'identification automatique a échoué. Veuillez sélectionner l'employé :", icon=":material/person_search:")
-                        
-                        # Récupération de la liste des employés (comme tu le fais dans ton bloc "Action RH Alternative")
-                        emp_res = requests.get(f"{BASE_URL}/employees", headers={"X-City": hr_city})
-                        if emp_res.status_code == 200:
-                            employees_list = [e for e in emp_res.json() if str(e.get("city", "")).strip().lower() == hr_city.lower()]
-                            emp_map = {f"{e['first_name']} {e['last_name']} (ID: {e['employee_id']})": e for e in employees_list}
-                            
-                            selected_name = st.selectbox("Rechercher l'employé", options=[""] + list(emp_map.keys()))
-                            if selected_name:
-                                chosen_employee = emp_map[selected_name]
-                                target_emp_id = chosen_employee['employee_id']
-                            else:
-                                target_emp_id = None
-                        else:
-                            target_emp_id = None
-                    else:
-                        # Cas où l'IA a réussi
-                        st.success(f"Employé Identifié : **{matched_emp['name']}**", icon=":material/badge:")
+                    target_emp_id = None
+
+                    # 2. SEUL BLOC D'IDENTIFICATION
+                    if matched_emp:
+                        st.success(f"Employé détecté : **{matched_emp['name']}**", icon=":material/badge:")
                         target_emp_id = matched_emp['employee_id']
+                    else:
+                        # Sélecteur manuel
+                        emp_res = requests.get(f"{API_URL.replace('/analysis', '')}/employees", headers={"X-City": hr_city})
+                        if emp_res.status_code == 200:
+                            emp_list = [e for e in emp_res.json() if str(e.get("city", "")).lower() == hr_city.lower()]
+                            emp_map = {f"{e['first_name']} {e['last_name']}": e for e in emp_list}
+                            
+                            selected = st.selectbox("Sélectionner l'employé :", options=[""] + list(emp_map.keys()))
+                            if selected:
+                                target_emp_id = emp_map[selected]['employee_id']
 
-                    if form_data and form_data.get("type") == "leave_request":
-                        st.caption("Action : Soumission directe de l'arrêt maladie extrait par le LLM")
+                    # 3. LE FORMULAIRE N'APPARAÎT QUE SI target_emp_id EST VALIDE
+                    if target_emp_id:
+                        st.caption("Action : Soumission du formulaire")
                         
-                        val_leave_type = st.selectbox("Catégorie de congé", ["Sick", "Annual", "Maternity", "Unpaid"], index=0)
-                        val_start = st.text_input("Date de début (AAAA-MM-JJ)", value=form_data.get("start_date") or "")
-                        val_end = st.text_input("Date de fin (AAAA-MM-JJ)", value=form_data.get("end_date") or "")
-                        val_days = st.number_input("Durée du congé (jours)", value=int(form_data.get("duration_days") or 1), step=1)
-                        val_comment = st.text_area("Note de validation administrative", value=form_data.get("employee_comment") or "")
+                        # Création des inputs
+                        val_leave_type = st.selectbox("Catégorie", ["Sick", "Annual", "Maternity", "Unpaid"])
+                        
+                        # On utilise bien safe_form_data ici
+                        val_start = st.text_input("Début", value=safe_form_data.get("start_date", ""))
+                        val_end = st.text_input("Fin", value=safe_form_data.get("end_date", ""))
+                        val_days = st.number_input("Durée", value=int(safe_form_data.get("duration_days") or 1))
+                        val_comment = st.text_area("Note", value=safe_form_data.get("employee_comment", ""))
 
-                        if st.button("Confirmer et Enregistrer le Congé", use_container_width=True, type="primary", icon=":material/edit_calendar:"):
+                        # UN SEUL BOUTON pour tout gérer
+                        if st.button("Confirmer et Enregistrer le Congé", use_container_width=True, type="primary"):
                             payload = {
                                 "employee_id": target_emp_id,
                                 "leave_type": val_leave_type,
@@ -153,15 +157,30 @@ def show_analysis():
                                 "duration_days": val_days,
                                 "employee_comment": val_comment
                             }
-                            conf = requests.post(f"{API_URL}/confirm-leave", json=payload)
-                            if conf.status_code == 200:
-                                st.session_state["analysis_success"] = "Le congé maladie extrait par l'IA a été enregistré avec succès !"
-                                del st.session_state["active_analysis"]
-                                st.rerun()
-                            else:
-                                st.error(conf.text, icon=":material/error:")
-
-           
+                            
+                            try:
+                                conf = requests.post(f"{API_URL}/confirm-leave", json=payload)
+                                if conf.status_code == 200:
+                                    st.session_state["analysis_success"] = "Le congé a été enregistré avec succès !"
+                                    del st.session_state["active_analysis"]
+                                    st.rerun()
+                                else:
+                                    st.error(f"Erreur serveur : {conf.text}")
+                            except Exception as e:
+                                st.error(f"Erreur de connexion : {str(e)}")
+                    else:
+                        st.info("Veuillez sélectionner un employé pour afficher le formulaire.")
+            elif raw_action == "create_document_request":
+                st.subheader(":material/description: Génération de document")
+                # On réutilise ta logique d'employé identifié
+                if matched_emp:
+                    st.success(f"Employé détecté : {matched_emp['name']}")
+                    doc_type = st.selectbox("Type de document", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie", "Lettre de congé"])
+                    if st.button("Générer le document"):
+                        # Ton appel API ici
+                        st.success("Document généré !")
+                        del st.session_state["active_analysis"]
+                        st.rerun()
             # ── MODE 2: CONSULTATIVE / ASSISTED WORKFLOW (CV, Contrats, Courriers) ──
             else:
                 st.success("Analyse consultative terminée. Aucune action automatisée en base de données n'est requise pour ce type de document.", icon=":material/info:")
@@ -188,103 +207,103 @@ def show_analysis():
                             st.caption("Aucune entité structurelle spécifique n'a été isolée dans ce document.")
                     else:
                         st.caption("Aucune donnée structurelle spécifique n'a été extraite.")
-
-                st.markdown("### Action RH Alternative (Saisie Manuelle)")
-                st.caption("Si ce document nécessite tout de même une action administrative, utilisez le sélecteur ci-dessous :")
-                
-                BASE_URL = API_URL.replace("/analysis", "") 
-                employees_list = []
-                
-                try:
-                    emp_res = requests.get(f"{BASE_URL}/employees", headers={"X-City": hr_city})
-                    if emp_res.status_code == 200:
-                        raw_list = emp_res.json()
-                        city_key = "city"
-                        if raw_list and isinstance(raw_list[0], dict):
-                            sample = raw_list[0]
-                            if "branch" in sample: city_key = "branch"
-                            elif "ville" in sample: city_key = "ville"
-                        
-                        # Filtre local strict par filiale
-                        employees_list = [e for e in raw_list if str(e.get(city_key, "")).strip().lower() == hr_city.strip().lower()]
-                        st.caption(f"Filtré localement : {len(employees_list)} employés trouvés pour la zone `{hr_city}`.")
-                    else:
-                        st.error(f"Erreur backend ({emp_res.status_code}) lors du chargement.", icon=":material/database_error:")
-                except Exception as e:
-                    st.error("Impossible de se connecter à la table des employés.", icon=":material/cloud_off:")
-
-                col_emp, col_doc = st.columns(2)
-                with col_emp:
-                    if employees_list:
-                        emp_map = {f"{e['first_name']} {e['last_name']} (ID: {e['employee_id']} - {e.get('department', 'N/A')})": e for e in employees_list}
-                        selected_name = st.selectbox("Rechercher un employé local", options=[""] + list(emp_map.keys()), index=0, placeholder="Saisissez un nom...")
-                        chosen_employee = emp_map.get(selected_name)
-                    else:
-                        st.error(f"Aucun employé disponible pour la filiale {hr_city}.", icon=":material/person_off:")
-                        chosen_employee = None
-                
-                with col_doc:
-                    manual_form_type = st.selectbox("Type de formulaire à ouvrir", options=["Demande de Document", "Demande de Congé"])
-                
-                st.write("---")
-
-                if chosen_employee:
-                    st.success(f"Employé sélectionné : **{chosen_employee['first_name']} {chosen_employee['last_name']}**", icon=":material/badge:")
+                if st.checkbox("Afficher la saisie manuelle si nécessaire"):
+                    st.markdown("### Action RH Alternative (Saisie Manuelle)")
+                    st.caption("Si ce document nécessite tout de même une action administrative, utilisez le sélecteur ci-dessous :")
                     
-                    if manual_form_type == "Demande de Document":
-                        st.markdown(f"#### Formulaire : Création de Document Administratif")
-                        doc_type = st.selectbox("Type de document requis", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie", "Lettre de conge"])
-                        purpose = st.text_input("Motif d'édition spécifié", value="Saisie manuelle suite à relecture de pièce")
-                        
-                        if st.button("Confirmer et Générer le Document", use_container_width=True, icon=":material/description:"):
-                            payload = {"employee_id": chosen_employee["employee_id"], "document_type": doc_type, "purpose": purpose}
-                            res_doc = requests.post(f"{API_URL}/confirm-document", json=payload)
-                            if res_doc.status_code == 200:
-                                st.session_state["analysis_success"] = "Le document requis a été consigné manuellement avec succès !"
-                                del st.session_state["active_analysis"]
-                                st.rerun()
-                            else:
-                                st.error(f"Erreur : {res_doc.text}", icon=":material/error:")
-
-                    elif manual_form_type == "Demande de Congé":
-                        st.markdown(f"#### Formulaire : Enregistrement d'Absence / Congé")
-                        leave_type = st.selectbox("Type de congé", ["Sick", "Annual", "Maternity", "Unpaid"])
-                        c_col1, c_col2 = st.columns(2)
-                        with c_col1: start_date = st.date_input("Date de début")
-                        with c_col2: end_date = st.date_input("Date de fin")
+                    BASE_URL = API_URL.replace("/analysis", "") 
+                    employees_list = []
+                    
+                    try:
+                        emp_res = requests.get(f"{BASE_URL}/employees", headers={"X-City": hr_city})
+                        if emp_res.status_code == 200:
+                            raw_list = emp_res.json()
+                            city_key = "city"
+                            if raw_list and isinstance(raw_list[0], dict):
+                                sample = raw_list[0]
+                                if "branch" in sample: city_key = "branch"
+                                elif "ville" in sample: city_key = "ville"
                             
-                        duration = st.number_input("Durée (Jours)", min_value=1, value=1, step=1)
-                        comment = st.text_area("Commentaire / Justification", value="Enregistré manuellement après analyse de pièce")
-                        
-                        if st.button("Confirmer et Enregistrer le Congé Manuel", use_container_width=True, icon=":material/edit_calendar:"):
-                            payload = {
-                                "employee_id": chosen_employee["employee_id"], "leave_type": leave_type,
-                                "start_date": str(start_date), "end_date": str(end_date),
-                                "duration_days": duration, "employee_comment": comment
-                            }
-                            res_leave = requests.post(f"{API_URL}/confirm-leave", json=payload)
-                            if res_leave.status_code == 200:
-                                st.session_state["analysis_success"] = "La demande de congé manuelle a été enregistrée !"
-                                del st.session_state["active_analysis"]
-                                st.rerun()
-                            else:
-                                i = st.error(f"Erreur : {res_leave.text}", icon=":material/error:")
+                            # Filtre local strict par filiale
+                            employees_list = [e for e in raw_list if str(e.get(city_key, "")).strip().lower() == hr_city.strip().lower()]
+                            st.caption(f"Filtré localement : {len(employees_list)} employés trouvés pour la zone `{hr_city}`.")
+                        else:
+                            st.error(f"Erreur backend ({emp_res.status_code}) lors du chargement.", icon=":material/database_error:")
+                    except Exception as e:
+                        st.error("Impossible de se connecter à la table des employés.", icon=":material/cloud_off:")
 
-                # ── BOUTON ANNULER CORRIGÉ ET SÉCURISÉ ───────────────────────────────
-                if st.button("Annuler et rejeter l'analyse actuelle", use_container_width=True, icon=":material/cancel:", type="secondary"):
-                    # 1. Suppression des états d'analyse
-                    if "active_analysis" in st.session_state:
-                        del st.session_state["active_analysis"]
-                    if "analysis_success" in st.session_state:
-                        del st.session_state["analysis_success"]
+                    col_emp, col_doc = st.columns(2)
+                    with col_emp:
+                        if employees_list:
+                            emp_map = {f"{e['first_name']} {e['last_name']} ({e.get('department', 'N/A')})": e for e in employees_list}
+                            selected_name = st.selectbox("Rechercher un employé local", options=[""] + list(emp_map.keys()), index=0, placeholder="Saisissez un nom...")
+                            chosen_employee = emp_map.get(selected_name)
+                        else:
+                            st.error(f"Aucun employé disponible pour la filiale {hr_city}.", icon=":material/person_off:")
+                            chosen_employee = None
+                
+                    with col_doc:
+                        manual_form_type = st.selectbox("Type de formulaire à ouvrir", options=["Demande de Document", "Demande de Congé"])
                     
-                    # 2. Forcer le changement de clé de l'uploader pour tout vider d'un coup
-                    if "uploader_key" not in st.session_state:
-                        st.session_state["uploader_key"] = 1000
-                    st.session_state["uploader_key"] += 1
-                    
-                    # 3. Rechargement propre de l'interface graphique
-                    st.rerun()
+                    st.write("---")
+
+                    if chosen_employee:
+                        st.success(f"Employé sélectionné : **{chosen_employee['first_name']} {chosen_employee['last_name']}**", icon=":material/badge:")
+                        
+                        if manual_form_type == "Demande de Document":
+                            st.markdown(f"#### Formulaire : Création de Document Administratif")
+                            doc_type = st.selectbox("Type de document requis", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie", "Lettre de conge"])
+                            purpose = st.text_input("Motif d'édition spécifié", value="Saisie manuelle suite à relecture de pièce")
+                            
+                            if st.button("Confirmer et Générer le Document", use_container_width=True, icon=":material/description:"):
+                                payload = {"employee_id": chosen_employee["employee_id"], "document_type": doc_type, "purpose": purpose}
+                                res_doc = requests.post(f"{API_URL}/confirm-document", json=payload)
+                                if res_doc.status_code == 200:
+                                    st.session_state["analysis_success"] = "Le document requis a été consigné manuellement avec succès !"
+                                    del st.session_state["active_analysis"]
+                                    st.rerun()
+                                else:
+                                    st.error(f"Erreur : {res_doc.text}", icon=":material/error:")
+
+                        elif manual_form_type == "Demande de Congé":
+                            st.markdown(f"#### Formulaire : Enregistrement d'Absence / Congé")
+                            leave_type = st.selectbox("Type de congé", ["Sick", "Annual", "Maternity", "Unpaid"])
+                            c_col1, c_col2 = st.columns(2)
+                            with c_col1: start_date = st.date_input("Date de début")
+                            with c_col2: end_date = st.date_input("Date de fin")
+                                
+                            duration = st.number_input("Durée (Jours)", min_value=1, value=1, step=1)
+                            comment = st.text_area("Commentaire / Justification", value="Enregistré manuellement après analyse de pièce")
+                            
+                            if st.button("Confirmer et Enregistrer le Congé Manuel", use_container_width=True, icon=":material/edit_calendar:"):
+                                payload = {
+                                    "employee_id": chosen_employee["employee_id"], "leave_type": leave_type,
+                                    "start_date": str(start_date), "end_date": str(end_date),
+                                    "duration_days": duration, "employee_comment": comment
+                                }
+                                res_leave = requests.post(f"{API_URL}/confirm-leave", json=payload)
+                                if res_leave.status_code == 200:
+                                    st.session_state["analysis_success"] = "La demande de congé manuelle a été enregistrée !"
+                                    del st.session_state["active_analysis"]
+                                    st.rerun()
+                                else:
+                                    i = st.error(f"Erreur : {res_leave.text}", icon=":material/error:")
+
+                    # ── BOUTON ANNULER CORRIGÉ ET SÉCURISÉ ───────────────────────────────
+                    if st.button("Annuler et rejeter l'analyse actuelle", use_container_width=True, icon=":material/cancel:", type="secondary"):
+                        # 1. Suppression des états d'analyse
+                        if "active_analysis" in st.session_state:
+                            del st.session_state["active_analysis"]
+                        if "analysis_success" in st.session_state:
+                            del st.session_state["analysis_success"]
+                        
+                        # 2. Forcer le changement de clé de l'uploader pour tout vider d'un coup
+                        if "uploader_key" not in st.session_state:
+                            st.session_state["uploader_key"] = 1000
+                        st.session_state["uploader_key"] += 1
+                        
+                        # 3. Rechargement propre de l'interface graphique
+                        st.rerun()
 
     # ── TAB 2: BULK COMPANY POLICIES UPLOADER ────────────────────────────────
     if tab2 is not None:

@@ -69,6 +69,7 @@ Règles strictes pour "document_type" :
 
 Règles pour "suggested_action":
 - "create_leave_request" : Uniquement si le document implique directement un arrêt, une absence ou un congé médical (Certificat médical, Lettre de demande de congé).
+- "create_document_request" : Si le document contient une demande explicite d'attestation (travail, salaire, bancaire, etc.).
 - "read_and_summarize" : Pour TOUS les autres documents (CV, Lettre de motivation, Contrat, Bulletin de paie, etc.). L'objectif est d'informer le RH sans créer d'absence automatique.
 """
 
@@ -165,17 +166,19 @@ def upload_and_analyze(
 
         prefilled_form = None
         # Déclenchement automatique de formulaire UNIQUEMENT pour les congés/certificats
-        if analysis.get("suggested_action") == "create_leave_request" and matched_employee:
+        if analysis.get("suggested_action") == "create_leave_request":
+            # On extrait l'ID si le match a réussi, sinon on laisse None
+            emp_id = matched_employee.employee_id if matched_employee else None
+            
             prefilled_form = {
                 "type": "leave_request",
-                "employee_id": matched_employee.employee_id,
-                "employee_name": f"{matched_employee.first_name} {matched_employee.last_name}",
-                "leave_type": "Sick" if "médical" in analysis.get("document_type","").lower() else "Annual",
+                "employee_id": emp_id, # Sera None si non trouvé, le frontend gérera
                 "start_date": analysis["extracted_data"].get("start_date"),
                 "end_date": analysis["extracted_data"].get("end_date"),
                 "duration_days": analysis["extracted_data"].get("duration_days"),
-                "employee_comment": analysis["extracted_data"].get("purpose", "Document analysé par IA")
+                "employee_comment": analysis["extracted_data"].get("purpose", "")
             }
+    
         
         # Retour complet et unifié pour l'interface utilisateur
         return {
