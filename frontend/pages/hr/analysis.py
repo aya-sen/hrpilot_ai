@@ -83,6 +83,7 @@ def show_analysis():
             # Mapping mis à jour avec notre nouvelle logique
             action_mapping = {
                 "create_leave_request": "Traitement Automatique (Congé)",
+                "create_document_request": "Génération de Document",
                 "read_and_summarize": "Lecture & Analyse Consultative"
             }
             raw_action = res.get("suggested_action")
@@ -172,15 +173,61 @@ def show_analysis():
                         st.info("Veuillez sélectionner un employé pour afficher le formulaire.")
             elif raw_action == "create_document_request":
                 st.subheader(":material/description: Génération de document")
-                # On réutilise ta logique d'employé identifié
+                
                 if matched_emp:
-                    st.success(f"Employé détecté : {matched_emp['name']}")
+                    st.success(f"Employé détecté : **{matched_emp['name']}**")
                     doc_type = st.selectbox("Type de document", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie", "Lettre de congé"])
-                    if st.button("Générer le document"):
-                        # Ton appel API ici
-                        st.success("Document généré !")
-                        del st.session_state["active_analysis"]
-                        st.rerun()
+                    
+                    if st.button("Générer le document", type="primary"):
+                        # 1. Étape nécessaire : Créer la requête de document pour obtenir un ID
+                        # Assure-toi que cette route existe pour créer la demande (ex: POST /documents/create)
+                        payload = {
+                            "employee_id": matched_emp.get('employee_id'), 
+                            "document_type": doc_type
+                        }
+                        
+                        try:
+                            BASE_URL = API_URL.replace('/analysis', '')
+
+                            # 1) Créer la demande (backend: POST /documents/submit)
+                            create_req = requests.post(
+                                f"{BASE_URL}/documents/submit",
+                                params={"employee_id": matched_emp.get('employee_id')},
+                                json={"document_type": doc_type, "purpose": None}
+                            )
+
+                            if create_req.status_code != 200:
+                                st.error(f"Impossible de créer la demande de document: {create_req.text}")
+                                return
+
+                            doc_request_id = create_req.json().get("doc_request_id")
+                            if not doc_request_id:
+                                st.error("doc_request_id introuvable dans la réponse backend.")
+                                return
+
+                            # 2) Générer le document (backend: PUT /documents/{doc_request_id}/generate)
+                            gen_res = requests.put(f"{BASE_URL}/documents/{doc_request_id}/generate", json={})
+                            if gen_res.status_code != 200:
+                                st.error(f"Erreur lors de la génération : {gen_res.text}")
+                                return
+
+                            # 3) Charger le fichier en bytes pour afficher le bouton Téléchargement
+                            download_res = requests.get(f"{BASE_URL}/documents/{doc_request_id}/download")
+                            if download_res.status_code != 200:
+                                st.error(f"Erreur lors du download : {download_res.text}")
+                                return
+
+                            st.success("Document généré avec succès !")
+
+                            st.download_button(
+                                label="Télécharger le document",
+                                data=download_res.content,
+                                    file_name=f"{doc_type}_{matched_emp['name']}.docx",
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                )
+
+                        except Exception as e:
+                            st.error(f"Erreur système : {e}")
             # ── MODE 2: CONSULTATIVE / ASSISTED WORKFLOW (CV, Contrats, Courriers) ──
             else:
                 st.success("Analyse consultative terminée. Aucune action automatisée en base de données n'est requise pour ce type de document.", icon=":material/info:")
