@@ -295,7 +295,8 @@ def turnover_rate(city: str, db: Session = Depends(get_db)):
 @router.get("/avg-seniority/{city}")
 def avg_seniority(city: str, db: Session = Depends(get_db)):
     query = db.query(models.Employee).filter(
-        models.Employee.hire_date != None
+        models.Employee.hire_date != None,
+        models.Employee.status == "Active"
     )
     if city != "all":
         query = query.filter(models.Employee.city == city)
@@ -329,7 +330,8 @@ def get_absenteeism_rate(city: str, db: Session = Depends(get_db)):
     ).filter(
         models.LeaveRequest.status == "Approved",
         models.LeaveRequest.start_date <= date.today(),
-        models.LeaveRequest.end_date >= date.today()
+        models.LeaveRequest.end_date >= date.today(),
+        models.Employee.status == "Active" 
     )
     
     if city != "all":
@@ -356,7 +358,7 @@ def get_department_alerts(city: str, db: Session = Depends(get_db)):
 
     for dept in departments:
         # 2. Filtrage TRÈS strict par département ET ville
-        query = db.query(models.Employee).filter(models.Employee.department == dept)
+        query = db.query(models.Employee).filter(models.Employee.department == dept,models.Employee.status == "Active")
         
         if city.lower() != "all":
             # On force la comparaison en minuscules pour éviter les erreurs de frappe (ex: rabat vs Rabat)

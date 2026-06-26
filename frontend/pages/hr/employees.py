@@ -77,7 +77,8 @@ def show_employees():
             f"Vous consultez les employés de l'agence de **{user_city}**.",
             icon=":material/info:"
         )
-
+    
+    statuts = ["Tous", "Active", "On Leave", "Resigned"]
     # ── Other filters ─────────────────────────────────────────────────────────
     if user_city == "Casablanca":
         with col2:
@@ -85,25 +86,30 @@ def show_employees():
                 set(e["department"] for e in employees if e.get("department"))
             )
             dept_filter = st.selectbox(":material/corporate_fare: Département", depts)
+            
         with col3:
             role_filter = st.selectbox(":material/badge: Rôle",
                                        ["Tous","Employee","Manager","HR"])
         with col4:
             search = st.text_input(":material/search: Rechercher",
                                    placeholder="Nom")
+            status_filter = st.selectbox(":material/person_check: Statut", statuts)
     else:
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 , col4 = st.columns(4)
         with col1:
             depts = ["Tous"] + sorted(
                 set(e["department"] for e in employees if e.get("department"))
             )
             dept_filter = st.selectbox(":material/corporate_fare: Département", depts)
+            
         with col2:
             role_filter = st.selectbox(":material/badge: Rôle",
                                        ["Tous","Employee","Manager","HR"])
         with col3:
             search = st.text_input(":material/search: Rechercher",
                                    placeholder="Nom")
+        with col4:
+            status_filter = st.selectbox(":material/person_check: Statut", statuts)
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     filtered = employees
@@ -120,6 +126,10 @@ def show_employees():
     if role_filter != "Tous":
         filtered = [e for e in filtered if e.get("role") == role_filter]
 
+    # Status filter
+    if status_filter != "Tous":
+        filtered = [e for e in filtered if e.get("status") == status_filter]
+
     # Search
     if search:
         s = search.lower()
@@ -133,12 +143,14 @@ def show_employees():
     # (Adapte "On Leave" ou "Active" si les mots exacts dans ta base sont différents)
     count_active = sum(1 for e in filtered if e.get("status") == "Active")
     count_leave = sum(1 for e in filtered if e.get("status") == "On Leave")
+    count_Resigned = sum(1 for e in filtered if e.get("status") == "Resigned")
     
     # Construction de la ligne d'information avec les icônes Streamlit
     status_text = (
         f":material/group: **{total_found}** au total  |  "
         f":material/check_circle: **{count_active}** présents  |  "
-        f":material/schedule: **{count_leave}** en congé"
+        f":material/schedule: **{count_leave}** en congé   |  "
+        f":material/cancel: **{count_Resigned}** démissionnés"
     )
     
     # Affichage de la ligne d'information stylisée

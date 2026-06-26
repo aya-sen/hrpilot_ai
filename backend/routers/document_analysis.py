@@ -143,10 +143,12 @@ def upload_and_analyze(
         text = extract_text_from_pdf(temp_path)
         
         if not text or len(text) < 20:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not extract text from PDF. Make sure it's not a scanned image."
-            )
+            return {
+                "status": "error",
+                "message": "Le document semble être une image scannée ou illisible. Veuillez fournir un PDF avec du texte sélectionnable."
+            }
+
+        
         
         analysis = analyze_with_ai(text)
 
