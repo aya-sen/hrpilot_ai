@@ -109,8 +109,20 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
     }
     
     # Generate based on document type
-    doc_type = doc_request.document_type
-    
+    doc_type = (doc_request.document_type or "").strip()
+
+    # Backward compatibility: chatbot older requests may save "Attestation" only
+    doc_type_lower = doc_type.lower()
+    if doc_type_lower in {"attestation", "attestation de travail"}:
+        # if purpose hints salaire, map to salaire, otherwise work
+        purpose_lower = (doc_request.purpose or "").lower()
+        if "salaire" in purpose_lower:
+            doc_type = "Attestation de salaire"
+        else:
+            doc_type = "Attestation de travail"
+    elif doc_type_lower in {"attestation de salaire", "attestation salaire"}:
+        doc_type = "Attestation de salaire"
+
     try:
         if doc_type == "Attestation de travail":
             file_path = generate_attestation_travail(emp_dict)

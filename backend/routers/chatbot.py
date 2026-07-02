@@ -243,7 +243,12 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
             4. FORMAT DES ACTIONS (Invisible pour l'utilisateur) :
             - N'utilise ce format qu'après confirmation :
             - Congé : {{"action": "create_leave_request", "leave_type": "Annual", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "duration_days": N}}
-            - Document : {{"action": "create_document_request", "document_type": "Attestation", "purpose": "usage personnel"}}
+            - Document : {{"action": "create_document_request", "document_type": "Attestation de travail", "purpose": "usage personnel"}}
+            - Document de salaire : {{"action": "create_document_request", "document_type": "Attestation de salaire", "purpose": "usage personnel"}}
+            - Lettre de congé : {{"action": "create_document_request", "document_type": "Lettre de congé", "purpose": "usage personnel"}}
+            - Bulletin de paie : {{"action": "create_document_request", "document_type": "Bulletin de paie", "purpose": "usage personnel"}}
+            - Certificat de travail : {{"action": "create_document_request", "document_type": "Certificat de travail", "purpose": "usage personnel"}}
+
             """
     # 6 & 7. Historique et Appel Groq (Garde ton code actuel)
     history = get_chat_history(employee_id, db)
@@ -274,7 +279,7 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
 
             new_request = models.DocumentRequest(
                 employee_id=employee_id,
-                document_type=action_data.get("document_type", "Attestation de travail"),
+                document_type=action_data.get("document_type", "Attestation de travail").strip(),
                 purpose=action_data.get("purpose", "Analyse documentaire IA"),
                 status="Pending",
                 request_date=datetime.now().date(),
