@@ -33,6 +33,8 @@ llm = ChatGroq(
     model_name="llama-3.3-70b-versatile",
     temperature=0.3
 )
+from backend.routers.employees import get_real_solde 
+
 def get_employee_context(employee_id: int, db: Session) -> str:
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == employee_id
@@ -44,17 +46,10 @@ def get_employee_context(employee_id: int, db: Session) -> str:
     from datetime import datetime
     current_year = datetime.now().year
     
-    # Ton code de calcul de solde actuel (Inchangé)
-    approved_leaves_this_year = db.query(models.LeaveRequest).filter(
-        models.LeaveRequest.employee_id == employee_id,
-        models.LeaveRequest.status == "Approved",
-        models.LeaveRequest.start_date >= f"{current_year}-01-01",
-        models.LeaveRequest.end_date <= f"{current_year}-12-31"
-    ).all()
-    
-    days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
-    LEGAL_BASE_ALLOCATION = 26
-    solde_current_year = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
+    # --- CHANGEMENT ICI ---
+    # Utilise ta nouvelle fonction centralisée au lieu de refaire le calcul ici
+    solde_current_year = get_real_solde(employee_id, current_year, db)
+    # ----------------------
 
     pending_leaves = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.employee_id == employee_id,

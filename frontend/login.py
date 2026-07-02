@@ -11,8 +11,6 @@ st.markdown("""
 
 
 def show_login():
-    # Configuration pour le mode plein écran (à mettre en haut de ton fichier principal)
-    # st.set_page_config(layout="wide") 
 
     st.markdown("""
     <style>
@@ -42,7 +40,7 @@ def show_login():
 
     left, right = st.columns([1, 1.2])
 
-    # ── CÔTÉ GAUCHE : BRANDING ──
+   
     # ── LEFT SIDE — Branding ──────────────────────────────────────────────────
     with left:
     # Utiliser dedent permet de garder ton code propre tout en supprimant 

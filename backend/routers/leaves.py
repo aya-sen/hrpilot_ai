@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.database import get_db
+from backend.routers.employees import get_real_solde
 from backend.schemas import LeaveRequestCreate, LeaveRequestResponse
 import backend.models as models
 from typing import List
@@ -101,7 +102,8 @@ def get_pending_for_manager(manager_id: int, db: Session = Depends(get_db)):
 from sqlalchemy import func
 from datetime import datetime
 
-# ── Get pending requests for HR ───────────────────────────────────────────────
+# Assure-toi d'importer ta fonction : from .employees import get_real_solde
+
 @router.get("/pending-hr/{city}")
 def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
     # 1. On récupère les demandes ET l'ID de l'employé
@@ -117,21 +119,14 @@ def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
     ).all()
     
     formatted_requests = []
-    current_year = datetime.now().year # 2026
-    LEGAL_BASE_ALLOCATION = 26
+    current_year = datetime.now().year
 
     for leave, emp in results:
-        # 2. Calcul dynamique des jours pris cette année uniquement
-        jours_pris = db.query(func.sum(models.LeaveRequest.duration_days)).filter(
-            models.LeaveRequest.employee_id == emp.employee_id,
-            models.LeaveRequest.status == "Approved",
-            models.LeaveRequest.start_date >= f"{current_year}-01-01",
-            models.LeaveRequest.end_date <= f"{current_year}-12-31"
-        ).scalar() or 0
-        
-        solde_calcule = max(LEGAL_BASE_ALLOCATION - jours_pris, 0)
+        # 2. Utilisation de la fonction centralisée ! 
+        # Plus besoin de requête SQL ici, tout est dans get_real_solde
+        solde_calcule = get_real_solde(emp.employee_id, current_year, db)
 
-        # 3. On ajoute au dictionnaire
+        # 3. Construction de la réponse
         formatted_requests.append({
             "request_id": leave.request_id,
             "employee_id": leave.employee_id,
@@ -146,7 +141,7 @@ def get_pending_for_hr(city: str, db: Session = Depends(get_db)):
             "last_name": emp.last_name,
             "department": emp.department,
             "city": emp.city,
-            "leave_balance_days": solde_calcule # 🔥 Le solde est maintenant à jour !
+            "leave_balance_days": solde_calcule # ✅ Maintenant cohérent avec le reste
         })
         
     return formatted_requests

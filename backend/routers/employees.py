@@ -14,92 +14,92 @@ router = APIRouter(
     tags=["Employees"]
 )
 
-# ── Fonction d'aide pour recalculer le solde de chaque employé ────────────────
-def _fix_employee_solde(employee, db: Session):
-    current_year = datetime.now().year
-    
-    # 1. Calculer les jours pris et approuvés en 2026 uniquement
-    approved_leaves_this_year = db.query(models.LeaveRequest).filter(
-        models.LeaveRequest.employee_id == employee.employee_id,
-        models.LeaveRequest.status == "Approved",
-        models.LeaveRequest.start_date >= f"{current_year}-01-01",
-        models.LeaveRequest.end_date <= f"{current_year}-12-31"
-    ).all()
-    
-    days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
-    
-    # 2. Appliquer la base de 26 jours fixée par le règlement intérieur
-    LEGAL_BASE_ALLOCATION = 26
-    solde_2026 = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
-    
-    # 3. Convertir l'objet SQLAlchemy en dictionnaire pour modifier le champ
-    employee_dict = {c.name: getattr(employee, c.name) for c in employee.__table__.columns}
-    employee_dict['leave_balance_days'] = solde_2026
-    
-    return employee_dict
-
-# ── Get all employees (HR only) ───────────────────────────────────────────────
-@router.get("/") # 💡 Tip: Retiré le response_model pour envoyer nos dictionnaires modifiés
-def get_all_employees(db: Session = Depends(get_db)):
-    employees = db.query(models.Employee).all()
-    # On applique la correction à chaque employé de la liste
-    return [_fix_employee_solde(emp, db) for emp in employees]
-
-# ── Get one employee by ID ────────────────────────────────────────────────────
-@router.get("/{employee_id}")  # 💡 Tip: Removed response_model so it accepts our custom dynamic dict
-def get_employee(employee_id: int, db: Session = Depends(get_db)):
-    employee = db.query(models.Employee).filter(
-        models.Employee.employee_id == employee_id
+def get_real_solde(employee_id: int, year: int, db: Session) -> int:
+    # 1. Récupérer les droits définis en base (Total autorisé + Ajustement manuel)
+    balance_record = db.query(models.AnnualBalance).filter(
+        models.AnnualBalance.employee_id == employee_id,
+        models.AnnualBalance.year == year
     ).first()
     
-    if not employee:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Employee {employee_id} not found"
-        )
+    # Si rien n'est défini pour l'année, on part sur 26 par défaut
+    total_allowed = balance_record.total_allowed if balance_record else 26
+    manual_adjustment = balance_record.manual_adjustment if balance_record else 0
     
-    # 1. Compute approved leave days taken ONLY in the current year (2026)
-    from datetime import datetime
-    current_year = datetime.now().year
+    # 2. Calculer les jours pris cette année
+    # On utilise l'overlap logic (plus précis)
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
     
-    approved_leaves_this_year = db.query(models.LeaveRequest).filter(
+    leaves_taken = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.employee_id == employee_id,
         models.LeaveRequest.status == "Approved",
-        models.LeaveRequest.start_date >= f"{current_year}-01-01",
-        models.LeaveRequest.end_date <= f"{current_year}-12-31"
+        models.LeaveRequest.start_date <= year_end,
+        models.LeaveRequest.end_date >= year_start
     ).all()
     
-    days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
+    days_taken = sum(int(l.duration_days or 0) for l in leaves_taken)
     
-    # 2. Use the standard Moroccan legal baseline (18 days) for the prototype
-    LEGAL_BASE_ALLOCATION = 26
-    solde_2026 = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
-    
-    # 3. Convert the SQLAlchemy object to a dictionary to safely swap the value
-    employee_dict = {c.name: getattr(employee, c.name) for c in employee.__table__.columns}
-    
-    # 4. Overwrite the field before sending it to the frontend!
-    employee_dict['leave_balance_days'] = solde_2026
-    
-    return employee_dict
+    # 3. Formule finale
+    return max((total_allowed + manual_adjustment) - days_taken, 0)
 
+# ── Get all employees (HR only) ───────────────────────────────────────────────
+@router.get("/")
+def get_all_employees(db: Session = Depends(get_db)):
+    employees = db.query(models.Employee).all()
+    current_year = datetime.now().year
+    
+    results = []
+    for emp in employees:
+        emp_dict = {c.name: getattr(emp, c.name) for c in emp.__table__.columns}
+        # On injecte le solde calculé
+        emp_dict['leave_balance_days'] = get_real_solde(emp.employee_id, current_year, db)
+        results.append(emp_dict)
+        
+    return results
+
+# ── Get one employee by ID ────────────────────────────────────────────────────
+@router.get("/{employee_id}")
+def get_employee(employee_id: int, db: Session = Depends(get_db)):
+    employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+        
+    # On utilise notre nouvelle fonction
+    current_year = datetime.now().year
+    real_solde = get_real_solde(employee_id, current_year, db)
+    
+    # Conversion en dict
+    emp_dict = {c.name: getattr(employee, c.name) for c in employee.__table__.columns}
+    emp_dict['leave_balance_days'] = real_solde
+    
+    return emp_dict
 # ── Get employees by department ───────────────────────────────────────────────
 @router.get("/department/{department}")
 def get_by_department(department: str, db: Session = Depends(get_db)):
-    employees = db.query(models.Employee).filter(
-        models.Employee.department == department
-    ).all()
-    # On applique la correction à chaque employé de la liste
-    return [_fix_employee_solde(emp, db) for emp in employees]
+    employees = db.query(models.Employee).filter(models.Employee.department == department).all()
+    current_year = datetime.now().year
+    
+    results = []
+    for emp in employees:
+        emp_dict = {c.name: getattr(emp, c.name) for c in emp.__table__.columns}
+        emp_dict['leave_balance_days'] = get_real_solde(emp.employee_id, current_year, db)
+        results.append(emp_dict)
+        
+    return results
 
 # ── Get team of a manager ─────────────────────────────────────────────────────
 @router.get("/manager/{manager_id}/team")
 def get_manager_team(manager_id: int, db: Session = Depends(get_db)):
-    team = db.query(models.Employee).filter(
-        models.Employee.manager_id == manager_id
-    ).all()
-    # On applique la correction à chaque membre de l'équipe
-    return [_fix_employee_solde(emp, db) for emp in team]
+    team = db.query(models.Employee).filter(models.Employee.manager_id == manager_id).all()
+    current_year = datetime.now().year
+    
+    results = []
+    for emp in team:
+        emp_dict = {c.name: getattr(emp, c.name) for c in emp.__table__.columns}
+        emp_dict['leave_balance_days'] = get_real_solde(emp.employee_id, current_year, db)
+        results.append(emp_dict)
+        
+    return results
 
 # ── Update employee (HR only) ─────────────────────────────────────────────────
 @router.put("/{employee_id}/status")
@@ -239,11 +239,54 @@ def update_employee(employee_id: int, data: dict, db: Session = Depends(get_db))
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     
+    # If HR updates leave_balance_days in the UI, store it in AnnualBalance for the CURRENT year
+    if "leave_balance_days" in data and data["leave_balance_days"] is not None:
+        current_year = datetime.now().year
+        leave_balance_days = int(data["leave_balance_days"])
+
+        # create or update AnnualBalance row for this employee+year
+        balance = db.query(models.AnnualBalance).filter(
+            models.AnnualBalance.employee_id == employee_id,
+            models.AnnualBalance.year == current_year
+        ).first()
+
+        if not balance:
+            balance = models.AnnualBalance(
+                employee_id=employee_id,
+                year=current_year,
+                total_allowed=26,
+                manual_adjustment=0,
+            )
+            db.add(balance)
+
+        # We interpret UI value as the desired final balance for the year,
+        # so we adjust manual_adjustment accordingly.
+        # days taken is based on approved leaves in the current year.
+        year_start = f"{current_year}-01-01"
+        year_end = f"{current_year}-12-31"
+        days_taken = db.query(models.LeaveRequest).filter(
+            models.LeaveRequest.employee_id == employee_id,
+            models.LeaveRequest.status == "Approved",
+            models.LeaveRequest.start_date <= year_end,
+            models.LeaveRequest.end_date >= year_start,
+        ).all()
+        days_taken_sum = sum(int(l.duration_days or 0) for l in days_taken)
+
+        # total_allowed is the legal entitlement (default 26)
+        total_allowed = balance.total_allowed or 26
+        # balance = total_allowed + manual_adjustment - days_taken_sum  => manual_adjustment = balance + days_taken_sum - total_allowed
+        balance.manual_adjustment = int(leave_balance_days) + days_taken_sum - int(total_allowed)
+
+        # keep employees.leave_balance_days in sync for compatibility with other code paths
+        employee.leave_balance_days = leave_balance_days
+
+    # Update the other editable fields (DO NOT overwrite leave_balance_days here)
     updatable_fields = [
         "first_name", "last_name", "phone_number", "city",
         "department", "position", "contract_type", "salary",
-        "leave_balance_days", "status", "role", "manager_id"
+        "status", "role", "manager_id"
     ]
+
     for field in updatable_fields:
         if field in data and data[field] is not None:
             setattr(employee, field, data[field])

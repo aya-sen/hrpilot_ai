@@ -38,6 +38,7 @@ def edit_employee_dialog(emp):
             })
             if result:
                 st.success("Mis à jour avec succès !")
+                st.session_state["emp_page"] = 1
                 st.rerun()
             else:
                 st.error("Erreur lors de la mise à jour.")

@@ -5,6 +5,8 @@ from backend.database import get_db
 import backend.models as models
 from datetime import date, datetime, timedelta
 
+from backend.routers.employees import get_real_solde
+
 router = APIRouter(
     prefix="/dashboard",
     tags=["Dashboard Analytics"]
@@ -125,9 +127,12 @@ def get_leaves_by_type(city: str, db: Session = Depends(get_db)):
 # ══════════════════════════════════════════════════════════════════════════════
 # SMART FEATURES — BURNOUT & PREDICTIONS
 # ══════════════════════════════════════════════════════════════════════════════
+# Importe ta fonction : from .employees import get_real_solde
+
 @router.get("/burnout-risk/{city}")
 def get_burnout_risk(city: str, db: Session = Depends(get_db)):
     six_months_ago = date.today() - timedelta(days=180)
+    current_year = datetime.now().year
     
     # 1. On prépare la requête de base pour les employés actifs
     query = db.query(models.Employee).filter(
@@ -135,19 +140,12 @@ def get_burnout_risk(city: str, db: Session = Depends(get_db)):
         models.Employee.role == "Employee"
     )
 
-    # 2. On ajoute le filtre de ville SEULEMENT si ce n'est pas "all"
     if city != "all":
         query = query.filter(models.Employee.city == city)
     
-    # 3. On récupère la liste des employés (filtrée ou non)
     all_employees = query.all()
-
     at_risk = []
     
-    # --- AJOUT SÉCURITÉ ANNÉE EN COURS ---
-    from datetime import datetime
-    current_year = datetime.now().year
-
     for emp in all_employees:
         # Check if they have any approved leave in last 6 months
         recent_leave = db.query(models.LeaveRequest).filter(
@@ -163,20 +161,9 @@ def get_burnout_risk(city: str, db: Session = Depends(get_db)):
                 models.LeaveRequest.status == "Approved"
             ).order_by(models.LeaveRequest.start_date.desc()).first()
 
-            # ── 🛠️ CALCUL DYNAMIQUE DU SOLDE POUR L'ANNÉE EN COURS ──
-            # On cherche uniquement les congés approuvés de l'année en cours
-            approved_leaves_this_year = db.query(models.LeaveRequest).filter(
-                models.LeaveRequest.employee_id == emp.employee_id,
-                models.LeaveRequest.status == "Approved",
-                models.LeaveRequest.start_date >= f"{current_year}-01-01",
-                models.LeaveRequest.end_date <= f"{current_year}-12-31"
-            ).all()
-            
-            days_taken_this_year = sum(int(l.duration_days or 0) for l in approved_leaves_this_year)
-            
-            # Allocation de base légale (26 jours) moins les jours pris cette année
-            LEGAL_BASE_ALLOCATION = 26
-            solde_current_year = max(LEGAL_BASE_ALLOCATION - days_taken_this_year, 0)
+            # ── 🛠️ CALCUL DYNAMIQUE UTILISANT LA FONCTION CENTRALISÉE ──
+            # Plus besoin de copier-coller la logique complexe ici !
+            solde_current_year = get_real_solde(emp.employee_id, current_year, db)
             # ────────────────────────────────────────────────────────
 
             at_risk.append({
@@ -184,7 +171,7 @@ def get_burnout_risk(city: str, db: Session = Depends(get_db)):
                 "name": f"{emp.first_name} {emp.last_name}",
                 "department": emp.department,
                 "city": emp.city,
-                "leave_balance": solde_current_year,  # <-- On utilise le solde corrigé ici !
+                "leave_balance": solde_current_year, 
                 "last_leave": str(last_leave.start_date) if last_leave else "Jamais",
                 "risk_level": "High" if not last_leave else "Medium",
                 "recommendation": f"{emp.first_name} n'a pas pris de congé depuis 6+ mois."

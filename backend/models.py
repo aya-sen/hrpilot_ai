@@ -20,7 +20,7 @@ class Employee(Base):
     contract_type = Column(Enum('CDI', 'CDD', 'Stage'), nullable=False)
     hire_date = Column(Date, nullable=False)
     salary = Column(Numeric(10, 2), nullable=False)
-    leave_balance_days = Column(Integer, nullable=False, default=28)
+    leave_balance_days = Column(Integer, nullable=False, default=26)
     status = Column(Enum('Active', 'On Leave','On leave', 'Resigned'), nullable=False, default='Active')
     role = Column(Enum('Employee', 'Manager', 'HR'), nullable=True, default='Employee')
     
@@ -74,5 +74,15 @@ class InternalRule(Base):
     title      = Column(String(255), nullable=False)
     content    = Column(Text, nullable=False)
     created_at = Column(DateTime, default=func.now())
+
+
+class AnnualBalance(Base):
+    __tablename__ = "annual_balances"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.employee_id"), nullable=False)
+    year = Column(Integer, nullable=False)
+    total_allowed = Column(Integer, default=26)
+    manual_adjustment = Column(Integer, default=0)
 
     
