@@ -9,6 +9,8 @@ from datetime import date, datetime
 from fastapi import UploadFile, File
 import shutil
 import os
+from backend.document_generator import generate_lettre_conge
+
 
 router = APIRouter(
     prefix="/leaves",
@@ -185,25 +187,72 @@ def hr_approve(request_id: int, db: Session = Depends(get_db)):
     # Update status to Approved
     leave.status = "Approved"
     
-    # Deduct leave balance from employee
+    # Deduct leave balance from employee (sync with AnnualBalance reality)
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == leave.employee_id
     ).first()
-    
+
     if employee and leave.duration_days:
-        if employee.leave_balance_days < leave.duration_days:
+        # 1) Recalculate the real balance for the current year
+        current_year = date.today().year
+        real_balance = get_real_solde(leave.employee_id, current_year, db)
+
+        # 2) Validate using the real balance
+        if real_balance < int(leave.duration_days):
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient leave balance. Available: {employee.leave_balance_days} days"
+                detail=(
+                    f"Insufficient leave balance. Available: {real_balance} days"
+                )
             )
-        employee.leave_balance_days -= leave.duration_days
-    
+
+        # 3) Update employees table with the correct remaining balance
+        employee.leave_balance_days = real_balance - int(leave.duration_days)
+
+    # Génération automatique de la lettre de congé (après approbation HR)
+    try:
+        # dict employé (structure attendue par generate_lettre_conge)
+        if employee:
+            emp_dict = {
+                "employee_id": employee.employee_id,
+                "first_name": employee.first_name,
+                "last_name": employee.last_name,
+                "gender": employee.gender,
+                "birth_date": employee.birth_date,
+                "department": employee.department,
+                "position": employee.position,
+                "contract_type": employee.contract_type,
+                "hire_date": employee.hire_date,
+                "salary": float(employee.salary),
+                "leave_balance_days": employee.leave_balance_days,
+                "city": employee.city,
+            }
+        else:
+            # sécurité: si employee est absent (normalement impossible)
+            emp_dict = None
+
+        leave_dict = {
+            "leave_type": leave.leave_type,
+            "start_date": leave.start_date,
+            "end_date": leave.end_date,
+            "duration_days": leave.duration_days,
+        }
+
+        if emp_dict:
+            file_path = generate_lettre_conge(emp_dict, leave_dict)
+            leave.leave_file_path = file_path
+    except Exception:
+        # On ne bloque pas l'approbation si la génération échoue
+        # (important pour un workflow simple et robuste)
+        pass
+
     db.commit()
     db.refresh(leave)
     return {
         "message": "Leave request approved by HR",
         "request_id": request_id,
-        "new_balance": employee.leave_balance_days if employee else None
+        "new_balance": employee.leave_balance_days if employee else None,
+        "leave_file_path": leave.leave_file_path
     }
 
 
@@ -211,7 +260,7 @@ def hr_approve(request_id: int, db: Session = Depends(get_db)):
 @router.get("/team-availability/{department}")
 def check_team_availability(
     department: str, 
-    city: str,  # 🧠 ADD THIS: Pass the city as a parameter
+    city: str,  
     start_date: date, 
     end_date: date, 
     db: Session = Depends(get_db)
@@ -246,8 +295,34 @@ def check_team_availability(
 
 
 # ── Upload medical certificate (Employee) ─────────────────────────────────
+@router.get("/{request_id}/download-letter")
+def download_letter(request_id: int, db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+
+    leave = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.request_id == request_id
+    ).first()
+
+    if not leave:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if not leave.leave_file_path:
+        raise HTTPException(status_code=404, detail="Leave letter not generated yet")
+
+    file_path = leave.leave_file_path
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on server")
+
+    return FileResponse(
+        path=file_path,
+        filename=os.path.basename(file_path),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
 @router.post("/{request_id}/upload-certificate")
 def upload_certificate(request_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+
     
     leave = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.request_id == request_id

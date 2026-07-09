@@ -2,7 +2,8 @@ import streamlit as st
 from datetime import date, timedelta
 from utils.api import (download_document, submit_leave, submit_document_request,
                        get_my_leaves, get_my_documents,
-                       get_employee, upload_certificate)
+                       get_employee, upload_certificate, download_leave_letter)
+
 
 def show_requests():
 
@@ -112,7 +113,6 @@ def show_requests():
             doc_type = st.selectbox("Type de document", [
                 "Attestation de travail",
                 "Attestation de salaire",
-                "Lettre de congé",
                 "Bulletin de paie",
                 "Certificat de travail"
             ])
@@ -188,6 +188,22 @@ def show_my_requests():
                             st.markdown(f"**:material/chat: Mon commentaire:** {leave['employee_comment']}")
                         if leave.get("manager_comment"):
                             st.markdown(f"**:material/reply: Réponse du manager:** {leave['manager_comment']}")
+
+                        # Lettre de congé auto (générée après hr-approve)
+                        if leave.get("status") == "Approved" and leave.get("leave_file_path"):
+                            file_bytes = download_leave_letter(leave["request_id"])
+                            if file_bytes:
+                                st.download_button(
+                                    label=":material/download: Télécharger la lettre de congé",
+                                    data=file_bytes,
+                                    file_name=leave.get("leave_file_path").split("\\")[-1],
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key=f"dl_leave_{leave['request_id']}",
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.warning("Lettre temporairement indisponible.")
+
 
     # ── TAB 2: My documents ───────────────────────────────────────────────────
     with tab2:

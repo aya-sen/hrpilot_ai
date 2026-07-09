@@ -22,6 +22,18 @@ router = APIRouter(
     tags=["Document Requests"]
 )
 
+import unicodedata
+
+def normalize_text(text: str) -> str:
+    """Enlève les accents, met en minuscule, enlève les espaces superflus"""
+    if not text:
+        return ""
+    text = text.strip().lower()
+    # Décompose les caractères accentués (é → e + accent), puis enlève l'accent
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return text
+
 # ── Submit a document request (Employee) ──────────────────────────────────────
 @router.post("/submit", response_model=DocumentRequestResponse)
 def submit_document_request(employee_id: int, request: DocumentRequestCreate, db: Session = Depends(get_db)):
@@ -109,19 +121,29 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
     }
     
     # Generate based on document type
-    doc_type = (doc_request.document_type or "").strip()
+    doc_type_raw = (doc_request.document_type or "").strip()
+    doc_type_normalized = normalize_text(doc_type_raw)
+    purpose_normalized = normalize_text(doc_request.purpose or "")
 
-    # Backward compatibility: chatbot older requests may save "Attestation" only
-    doc_type_lower = doc_type.lower()
-    if doc_type_lower in {"attestation", "attestation de travail"}:
-        # if purpose hints salaire, map to salaire, otherwise work
-        purpose_lower = (doc_request.purpose or "").lower()
-        if "salaire" in purpose_lower:
-            doc_type = "Attestation de salaire"
-        else:
-            doc_type = "Attestation de travail"
-    elif doc_type_lower in {"attestation de salaire", "attestation salaire"}:
+    # Détection robuste du type de document, peu importe accents/casse/espaces
+    if "salaire" in doc_type_normalized:
         doc_type = "Attestation de salaire"
+    elif "attestation" in doc_type_normalized and "travail" in doc_type_normalized:
+        doc_type = "Attestation de travail"
+    elif "attestation" in doc_type_normalized:
+        # attestation seule, sans précision → on regarde le purpose
+        doc_type = "Attestation de salaire" if "salaire" in purpose_normalized else "Attestation de travail"
+    elif "conge" in doc_type_normalized and "lettre" in doc_type_normalized:
+        doc_type = "Lettre de congé"
+    elif "bulletin" in doc_type_normalized and "paie" in doc_type_normalized:
+        doc_type = "Bulletin de paie"
+    elif "certificat" in doc_type_normalized and "travail" in doc_type_normalized:
+        doc_type = "Certificat de travail"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Document type '{doc_type_raw}' not supported"
+        )
 
     try:
         if doc_type == "Attestation de travail":
@@ -176,6 +198,7 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
             
     except FileNotFoundError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
     
     # Update DB
     doc_request.status              = "Generated"

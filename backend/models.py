@@ -41,6 +41,9 @@ class LeaveRequest(Base):
     employee_comment  = Column(Text, nullable=True)        
     certificate_file_path = Column(String(255), nullable=True)
     manager_comment = Column(Text, nullable=True)
+    # Lettre de congé générée automatiquement après hr-approve
+    leave_file_path = Column(String(255), nullable=True)
+
 
 
 class DocumentRequest(Base):

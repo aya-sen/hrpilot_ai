@@ -39,6 +39,8 @@ class LeaveRequestResponse(BaseModel):
     employee_comment:     Optional[str] = None     
     certificate_file_path: Optional[str] = None
     manager_comment: Optional[str] = None
+    leave_file_path: Optional[str] = None
+
 
     class Config:
         from_attributes = True

@@ -78,12 +78,20 @@ def hr_approve_leave(request_id: int):
     response = requests.put(f"{BASE_URL}/leaves/{request_id}/hr-approve")
     return response.json() if response.status_code == 200 else None
 
+def download_leave_letter(request_id: int):
+    response = requests.get(f"{BASE_URL}/leaves/{request_id}/download-letter")
+    if response.status_code == 200:
+        return response.content
+    return None
+
+
 def upload_certificate(request_id: int, file_bytes, filename: str):
     response = requests.post(
         f"{BASE_URL}/leaves/{request_id}/upload-certificate",
         files={"file": (filename, file_bytes, "application/pdf")}
     )
     return response.json() if response.status_code == 200 else None
+
 
 def get_team_availability(department: str, city: str, start_date: str, end_date: str):
     """
