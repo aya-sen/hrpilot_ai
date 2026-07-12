@@ -109,6 +109,33 @@ def show_dashboard():
             label=":material/sync_alt: Taux de turnover",
             value=f"{turnover.get('turnover_rate', 0)} %"
         )
+        
+        by_department = turnover.get("by_department", [])
+        if by_department:
+            with st.expander("Voir le détail par département"):
+                df_turnover = pd.DataFrame(by_department)
+                df_turnover = df_turnover.rename(columns={
+                    "department": "Département",
+                    "total": "Effectif",
+                    "resigned": "Départs",
+                    "turnover_rate": "Taux (%)"
+                })
+                
+                df_turnover["Taux (%)"] = df_turnover["Taux (%)"].round(1)
+                
+                def highlight_rate(val):
+                    if val >= 20:
+                        return "color: #d32f2f; font-weight: bold;"
+                    elif val >= 10:
+                        return "color: #f57c00; font-weight: bold;"
+                    else:
+                        return "color: #388e3c;"
+                
+                styled_df = df_turnover.style.map(
+                    highlight_rate, subset=["Taux (%)"]
+                ).format({"Taux (%)": "{:.1f}"})
+                
+                st.dataframe(styled_df, hide_index=True, use_container_width=True)
     
     with col2:
         st.metric(
@@ -140,7 +167,7 @@ def show_dashboard():
             # st.write("Aucune alerte de sous-effectif pour le moment.")
             pass
 
-    # ── Charts Row 1 ──────────────────────────────────────────────────────────
+
     # ── Charts Row 1 (Attentes vs Types) ──────────────────────────────────────
     col1, col2 = st.columns(2)
     

@@ -11,13 +11,13 @@ if "form_version" not in st.session_state:
 # This decorator creates a clean popup window when the user clicks "Modifier"
 @st.dialog("Modifier l'employé")
 def edit_employee_dialog(emp):
-    st.markdown(f"⚙️ Modification de **{emp['first_name']} {emp['last_name']}**")
+    st.markdown(f"Modification de **{emp['first_name']} {emp['last_name']}**")
     st.divider()
     
     new_status = st.selectbox(
         "Statut",
-        ["Active", "On Leave", "Resigned"],
-        index=["Active", "On Leave", "Resigned"].index(emp.get("status", "Active"))
+        ["Active", "Resigned"],
+        index=["Active", "Resigned"].index(emp.get("status", "Active"))
     )
     new_phone = st.text_input("Téléphone", value=emp.get("phone_number") or "")
     new_salary = st.number_input("Salaire (MAD)", value=float(emp.get("salary") or 0), step=500.0)

@@ -19,7 +19,7 @@ def city_stats(city: str, db: Session = Depends(get_db)):
     # 1. Total Employés
     query_total = db.query(models.Employee)
     if city != "all":
-        query_total = query_total.filter(models.Employee.city == city)
+        query_total = query_total.filter(models.Employee.city == city , models.Employee.status != "Resigned")
     total = query_total.count()
 
     # 2. Actifs
@@ -55,35 +55,32 @@ def city_stats(city: str, db: Session = Depends(get_db)):
 # ══════════════════════════════════════════════════════════════════════════════
 # LEAVE ANALYTICS
 # ══════════════════════════════════════════════════════════════════════════════
+from datetime import date
+
 @router.get("/leaves-pressure-summer/{city}")
 def get_leaves_pressure_summer(city: str, db: Session = Depends(get_db)):
-    months = [6, 7, 8]  # Juin, Juillet, Août 2026
+    current_year = date.today().year
+    months = [6, 7, 8]  # Juin, Juillet, Août
     departments = [d[0] for d in db.query(models.Employee.department).distinct().all() if d[0]]
     
     pressure_data = []
     
     for dept in departments:
-        for m in months:
-            # 1. Nombre total d'employés dans le département (pour calibrer la taille de l'équipe)
-            emp_query = db.query(models.Employee.employee_id).filter(models.Employee.department == dept)
-            if city.lower() != "all":
-                emp_query = emp_query.filter(models.Employee.city.ilike(city))
-            
-            total_staff = emp_query.count()
-            if total_staff == 0:
-                continue
-                
-            # 2. Compter le nombre de demandes EN ATTENTE (Pending) pour ce mois
-            # CORRECTION : On crée la sous-requête et on lui applique le filtre city !
-            sub_emp_query = db.query(models.Employee.employee_id).filter(models.Employee.department == dept)
-            if city.lower() != "all":
-                sub_emp_query = sub_emp_query.filter(models.Employee.city.ilike(city))
+        # Requête employés du département (+ ville), calculée UNE seule fois
+        emp_query = db.query(models.Employee.employee_id).filter(models.Employee.department == dept, models.Employee.status != "Resigned")
+        if city.lower() != "all":
+            emp_query = emp_query.filter(models.Employee.city.ilike(city))
+        
+        total_staff = emp_query.count()
+        if total_staff == 0:
+            continue
 
+        for m in months:
             pending_requests = db.query(models.LeaveRequest.employee_id).distinct().filter(
-                models.LeaveRequest.employee_id.in_(sub_emp_query), # Utilise la sous-requête filtrée ici
+                models.LeaveRequest.employee_id.in_(emp_query),
                 models.LeaveRequest.status == "Pending_Manager",
                 extract('month', models.LeaveRequest.start_date) == m,
-                extract('year', models.LeaveRequest.start_date) == 2026
+                extract('year', models.LeaveRequest.start_date) == current_year
             ).count()
             
             month_names = {6: "Juin", 7: "Juillet", 8: "Août"}
@@ -113,7 +110,9 @@ def get_leaves_by_type(city: str, db: Session = Depends(get_db)):
         models.Employee,
         models.LeaveRequest.employee_id == models.Employee.employee_id
     ).filter(
-        extract('year', models.LeaveRequest.start_date) == current_year
+        extract('year', models.LeaveRequest.start_date) == current_year,
+        models.LeaveRequest.status == "Approved"
+
     )
 
     # 3. On applique le filtre de ville SEULEMENT si ce n'est pas "all"
@@ -272,18 +271,51 @@ def turnover_rate(city: str, db: Session = Depends(get_db)):
     query = db.query(models.Employee)
     if city != "all":
         query = query.filter(models.Employee.city == city)
-    
+
     total    = query.count()
     resigned = query.filter(models.Employee.status == "Resigned").count()
     rate     = round((resigned / total * 100), 1) if total > 0 else 0
-    return {"total": total, "resigned": resigned, "turnover_rate": rate}
+
+    # ── Détail par département ──────────────────────────────────────────
+    departments = db.query(models.Employee.department).distinct()
+    if city != "all":
+        departments = departments.filter(models.Employee.city == city)
+    departments = [d[0] for d in departments.all() if d[0]]
+
+    by_department = []
+    for dept in departments:
+        dept_query = db.query(models.Employee).filter(models.Employee.department == dept)
+        if city != "all":
+            dept_query = dept_query.filter(models.Employee.city == city)
+
+        dept_total    = dept_query.count()
+        dept_resigned = dept_query.filter(models.Employee.status == "Resigned").count()
+        dept_rate     = round((dept_resigned / dept_total * 100), 1) if dept_total > 0 else 0
+
+        by_department.append({
+            "department": dept,
+            "total": dept_total,
+            "resigned": dept_resigned,
+            "turnover_rate": dept_rate
+        })
+
+    # Trie du plus critique au moins critique
+    by_department.sort(key=lambda d: d["turnover_rate"], reverse=True)
+
+    return {
+        "city": city,
+        "total": total,
+        "resigned": resigned,
+        "turnover_rate": rate,
+        "by_department": by_department
+    }
 
 
 @router.get("/avg-seniority/{city}")
 def avg_seniority(city: str, db: Session = Depends(get_db)):
     query = db.query(models.Employee).filter(
         models.Employee.hire_date != None,
-        models.Employee.status == "Active"
+        models.Employee.status != "Resigned"
     )
     if city != "all":
         query = query.filter(models.Employee.city == city)
@@ -301,11 +333,13 @@ def avg_seniority(city: str, db: Session = Depends(get_db)):
 @router.get("/absenteeism-rate/{city}")
 def get_absenteeism_rate(city: str, db: Session = Depends(get_db)):
     # 1. Calculer le nombre total d'employés
-    emp_query = db.query(models.Employee).filter(models.Employee.status == "Active")
+    # Compter seulement les employés "vivants" : pas Resigned
+    emp_query = db.query(models.Employee).filter(models.Employee.status != "Resigned")
     if city != "all":
         emp_query = emp_query.filter(models.Employee.city == city)
     
     total_employees = emp_query.count()
+
     
     if total_employees == 0:
         return {"rate": 0.0}
@@ -318,7 +352,7 @@ def get_absenteeism_rate(city: str, db: Session = Depends(get_db)):
         models.LeaveRequest.status == "Approved",
         models.LeaveRequest.start_date <= date.today(),
         models.LeaveRequest.end_date >= date.today(),
-        models.Employee.status == "Active" 
+        models.Employee.status != "Resigned" 
     )
     
     if city != "all":
@@ -345,7 +379,7 @@ def get_department_alerts(city: str, db: Session = Depends(get_db)):
 
     for dept in departments:
         # 2. Filtrage TRÈS strict par département ET ville
-        query = db.query(models.Employee).filter(models.Employee.department == dept,models.Employee.status == "Active")
+        query = db.query(models.Employee).filter(models.Employee.department == dept,models.Employee.status != "Resigned")
         
         if city.lower() != "all":
             # On force la comparaison en minuscules pour éviter les erreurs de frappe (ex: rabat vs Rabat)

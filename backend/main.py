@@ -26,10 +26,15 @@ app.include_router(chat.router)
 app.include_router(chatbot.router)
 app.include_router(document_analysis.router)
 app.include_router(dashboard.router)
+
+
+
 # ── Test route — just to verify everything works ──────────────────────────────
 @app.get("/")
+
 def root():
     return {"message": "HRPilot AI API is running ✅"}
+
 
 @app.get("/health")
 def health_check():

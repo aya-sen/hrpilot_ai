@@ -186,13 +186,14 @@ def hr_approve(request_id: int, db: Session = Depends(get_db)):
     
     # Update status to Approved
     leave.status = "Approved"
-    
+
     # Deduct leave balance from employee (sync with AnnualBalance reality)
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == leave.employee_id
     ).first()
 
     if employee and leave.duration_days:
+
         # 1) Recalculate the real balance for the current year
         current_year = date.today().year
         real_balance = get_real_solde(leave.employee_id, current_year, db)
@@ -207,7 +208,7 @@ def hr_approve(request_id: int, db: Session = Depends(get_db)):
             )
 
         # 3) Update employees table with the correct remaining balance
-        employee.leave_balance_days = real_balance - int(leave.duration_days)
+        employee.leave_balance_days = real_balance 
 
     # Génération automatique de la lettre de congé (après approbation HR)
     try:

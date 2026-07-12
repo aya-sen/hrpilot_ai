@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -13,6 +13,20 @@ router = APIRouter(
     prefix="/employees",
     tags=["Employees"]
 )
+
+def has_active_approved_leave(employee_id: int, today: date, db: Session) -> bool:
+    return (
+        db.query(models.LeaveRequest)
+        .filter(
+            models.LeaveRequest.employee_id == employee_id,
+            models.LeaveRequest.status == "Approved",
+            models.LeaveRequest.start_date <= today,
+            models.LeaveRequest.end_date >= today,
+        )
+        .first()
+        is not None
+    )
+
 
 def get_real_solde(employee_id: int, year: int, db: Session) -> int:
     # 1. Récupérer les droits définis en base (Total autorisé + Ajustement manuel)
@@ -42,20 +56,30 @@ def get_real_solde(employee_id: int, year: int, db: Session) -> int:
     # 3. Formule finale
     return max((total_allowed + manual_adjustment) - days_taken, 0)
 
-# ── Get all employees (HR only) ───────────────────────────────────────────────
 @router.get("/")
 def get_all_employees(db: Session = Depends(get_db)):
     employees = db.query(models.Employee).all()
     current_year = datetime.now().year
-    
+    today = date.today()
+
     results = []
     for emp in employees:
         emp_dict = {c.name: getattr(emp, c.name) for c in emp.__table__.columns}
-        # On injecte le solde calculé
         emp_dict['leave_balance_days'] = get_real_solde(emp.employee_id, current_year, db)
+
+        if emp.status != "Resigned":
+            computed_status = "On Leave" if has_active_approved_leave(emp.employee_id, today, db) else "Active"
+            emp_dict['status'] = computed_status
+
+            # ✅ Persiste la correction en base si elle diffère
+            if emp.status != computed_status:
+                emp.status = computed_status
+
         results.append(emp_dict)
-        
+
+    db.commit()  # sauvegarde toutes les corrections faites dans la boucle
     return results
+
 
 # ── Get one employee by ID ────────────────────────────────────────────────────
 @router.get("/{employee_id}")
@@ -64,41 +88,68 @@ def get_employee(employee_id: int, db: Session = Depends(get_db)):
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
         
-    # On utilise notre nouvelle fonction
     current_year = datetime.now().year
+    today = date.today()
     real_solde = get_real_solde(employee_id, current_year, db)
     
-    # Conversion en dict
     emp_dict = {c.name: getattr(employee, c.name) for c in employee.__table__.columns}
     emp_dict['leave_balance_days'] = real_solde
+
+    if employee.status != "Resigned":
+        computed_status = "On Leave" if has_active_approved_leave(employee_id, today, db) else "Active"
+        emp_dict['status'] = computed_status
+        if employee.status != computed_status:
+            employee.status = computed_status
+            db.commit()
     
     return emp_dict
+
+
 # ── Get employees by department ───────────────────────────────────────────────
 @router.get("/department/{department}")
 def get_by_department(department: str, db: Session = Depends(get_db)):
     employees = db.query(models.Employee).filter(models.Employee.department == department).all()
     current_year = datetime.now().year
+    today = date.today()
     
     results = []
     for emp in employees:
         emp_dict = {c.name: getattr(emp, c.name) for c in emp.__table__.columns}
         emp_dict['leave_balance_days'] = get_real_solde(emp.employee_id, current_year, db)
+
+        if emp.status != "Resigned":
+            computed_status = "On Leave" if has_active_approved_leave(emp.employee_id, today, db) else "Active"
+            emp_dict['status'] = computed_status
+            if emp.status != computed_status:
+                emp.status = computed_status
+
         results.append(emp_dict)
         
+    db.commit()
     return results
+
 
 # ── Get team of a manager ─────────────────────────────────────────────────────
 @router.get("/manager/{manager_id}/team")
 def get_manager_team(manager_id: int, db: Session = Depends(get_db)):
     team = db.query(models.Employee).filter(models.Employee.manager_id == manager_id).all()
     current_year = datetime.now().year
+    today = date.today()
     
     results = []
     for emp in team:
         emp_dict = {c.name: getattr(emp, c.name) for c in emp.__table__.columns}
         emp_dict['leave_balance_days'] = get_real_solde(emp.employee_id, current_year, db)
+
+        if emp.status != "Resigned":
+            computed_status = "On Leave" if has_active_approved_leave(emp.employee_id, today, db) else "Active"
+            emp_dict['status'] = computed_status
+            if emp.status != computed_status:
+                emp.status = computed_status
+
         results.append(emp_dict)
         
+    db.commit()
     return results
 
 # ── Update employee (HR only) ─────────────────────────────────────────────────
