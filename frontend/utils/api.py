@@ -159,7 +159,12 @@ def send_chat_message(employee_id: int, message: str):
         "employee_id": employee_id,
         "message":     message
     })
-    return response.json() if response.status_code == 200 else None
+    if response.status_code == 200:
+        return response.json()
+    elif response.status_code == 429:
+        return {"error_type": "rate_limit"}
+    else:
+        return None
 
 def get_chat_history(employee_id: int):
     response = requests.get(f"{BASE_URL}/chat/history/{employee_id}")

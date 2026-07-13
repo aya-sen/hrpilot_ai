@@ -96,12 +96,15 @@ def show_chatbot():
                 result = send_chat_message(employee_id, prompt)
 
             if result:
-                response = result.get("response", "Désolé, une erreur s'est produite.")
-                action = result.get("action_taken")
-                st.markdown(response)
-                if action:
-                    st.success(action)
-                st.session_state.chat_messages.append({"role": "assistant", "content": response})
+                if result.get("error_type") == "rate_limit":
+                    st.warning("Le chatbot est très sollicité en ce moment, veuillez patienter quelques instants avant de réessayer.")
+                else:
+                    response = result.get("response", "Désolé, une erreur s'est produite.")
+                    action = result.get("action_taken")
+                    st.markdown(response)
+                    if action:
+                        st.success(action)
+                    st.session_state.chat_messages.append({"role": "assistant", "content": response})
             else:
                 st.error("Erreur de connexion au serveur.")
 

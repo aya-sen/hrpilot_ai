@@ -16,7 +16,11 @@ DB_NAME     = os.getenv("DB_NAME")
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # 3. On crée le moteur (le tunnel vers MySQL)
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL,
+    pool_size=20,  #garde jusqu'à 20 connexions ouvertes en permanence, prêtes à l'emploi
+    max_overflow=10,  #si les 20 sont toutes occupées, autorise jusqu'à 10 connexions supplémentaires temporaires
+    pool_timeout=30,    #une requête attend au maximum 30 secondes qu'une connexion se libère avant d'abandonner
+    pool_recycle=1800)   #ferme et renouvelle les connexions inactives depuis 30 minutes (évite les connexions MySQL qui expirent silencieusement)
 
 # 4. On crée l'usine qui fabrique les sessions de travail
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

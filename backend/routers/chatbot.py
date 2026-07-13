@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 import backend.models as models
 from datetime import datetime, timedelta
+from backend.routers.employees import get_real_solde 
 from dotenv import load_dotenv
 import os
 
@@ -33,7 +34,7 @@ llm = ChatGroq(
     model_name="llama-3.3-70b-versatile",
     temperature=0.3
 )
-from backend.routers.employees import get_real_solde 
+
 
 def get_employee_context(employee_id: int, db: Session) -> str:
     employee = db.query(models.Employee).filter(
@@ -63,29 +64,31 @@ def get_employee_context(employee_id: int, db: Session) -> str:
 
     # 1. Infos privées de l'utilisateur connecté (Toujours incluses)
     context = f"""
-PROFIL DE L'EMPLOYÉ CONNECTÉ:
-- Nom complet: {employee.first_name} {employee.last_name}
-- Département: {employee.department}
-- Poste: {employee.position}
-- Ville: {employee.city}
-- Type de contrat: {employee.contract_type}
-- Date d'embauche: {employee.hire_date}
-- Salaire mensuel brut: {employee.salary} MAD
-- Solde de congés disponible: {solde_current_year} jours
-- Statut: {employee.status}
-- Rôle: {employee.role}
-- Demandes de congé en attente: {pending_leaves}
-- Demandes de documents en attente: {pending_docs}
-"""
+            PROFIL DE L'EMPLOYÉ CONNECTÉ:
+            - Nom complet: {employee.first_name} {employee.last_name}
+            - Département: {employee.department}
+            - Poste: {employee.position}
+            - Ville: {employee.city}
+            - Type de contrat: {employee.contract_type}
+            - Date d'embauche: {employee.hire_date}
+            - Salaire mensuel brut: {employee.salary} MAD
+            - Solde de congés disponible: {solde_current_year} jours
+            - Statut: {employee.status}
+            - Rôle: {employee.role}
+            - Demandes de congé en attente: {pending_leaves}
+            - Demandes de documents en attente: {pending_docs}
+            """
 
     # 2. SEULEMENT POUR RH ET MANAGER : Extraction de TOUTE la liste des effectifs de sa zone
     if employee.role in ["HR", "Manager"]:
-        is_drh_global = (employee.city.lower() == "all" or employee.position.lower() == "drh")
-        
+        drh_id = get_drh_id(db)  # ID du vrai DRH trouvé dans la DB
+        is_drh_global = (employee.employee_id == drh_id)
+
         query_staff = db.query(models.Employee)
         if not is_drh_global:
+            # sinon, il ne voit que les employés de sa ville
             query_staff = query_staff.filter(models.Employee.city == employee.city)
-            
+
         all_staff = query_staff.all()
         
         # Construction d'un tableau texte brut de TOUS les employés pour que l'IA puisse répondre à TOUT
@@ -94,9 +97,9 @@ PROFIL DE L'EMPLOYÉ CONNECTÉ:
             staff_list_text += f"- {emp.first_name} {emp.last_name} | Poste: {emp.position} | Dept: {emp.department} | Contrat: {emp.contract_type} | Ville: {emp.city} | Salaire: {emp.salary} MAD | Statut: {emp.status}\n"
 
         context += f"""
-[ACCÈS AUTORISÉ RH/MANAGER - LISTE COMPLÈTE DES EFFECTIFS SOUS VOTRE GESTION]
-{staff_list_text}
-"""
+                    [ACCÈS AUTORISÉ RH/MANAGER - LISTE COMPLÈTE DES EFFECTIFS SOUS VOTRE GESTION]
+                    {staff_list_text}
+                    """
     return context
 
 
@@ -245,7 +248,6 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
             - Congé : {{"action": "create_leave_request", "leave_type": "Annual", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "duration_days": N}}
             - Document : {{"action": "create_document_request", "document_type": "Attestation de travail", "purpose": "usage personnel"}}
             - Document de salaire : {{"action": "create_document_request", "document_type": "Attestation de salaire", "purpose": "usage personnel"}}
-            - Lettre de congé : {{"action": "create_document_request", "document_type": "Lettre de congé", "purpose": "usage personnel"}}
             - Bulletin de paie : {{"action": "create_document_request", "document_type": "Bulletin de paie", "purpose": "usage personnel"}}
             - Certificat de travail : {{"action": "create_document_request", "document_type": "Certificat de travail", "purpose": "usage personnel"}}
 
@@ -262,8 +264,14 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
         response = llm.invoke(messages)
         ai_response = response.content
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
-
+        error_message = str(e)
+        if "429" in error_message or "rate limit" in error_message.lower():
+            print(f"GROQ RATE LIMIT DETAIL: {error_message}")  # ← ajoute cette ligne temporairement
+            raise HTTPException(
+                status_code=429,
+                detail="Le service est temporairement surchargé, veuillez réessayer dans quelques instants."
+            )
+        raise HTTPException(status_code=500, detail=f"AI error: {error_message}")
     # 8. --- LA RÉPARATION TECHNIQUE ---
     action_result = None
 
@@ -312,8 +320,8 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
                 else:
                     target_status = "Pending_HR"
                     # On cherche le DRH de Casa
-                    drh = db.query(models.Employee).filter(models.Employee.role == "HR", models.Employee.city == "Casablanca").first()
-                    assigned_manager_id = drh.employee_id if drh else employee.manager_id
+                    drh_id = get_drh_id(db)
+                    assigned_manager_id = drh_id if drh_id else employee.manager_id
 
             # ── DEBUT DE LA SÉCURITÉ DES DATES (COLLE LE BLOC ICI) ───────────
             try:
@@ -333,8 +341,8 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
                 employee_id     = employee_id,
                 manager_id      = assigned_manager_id,
                 leave_type      = action_data.get("leave_type", "Annual"),
-                start_date      = action_data.get("start_date"),
-                end_date        = action_data.get("end_date"),
+                start_date      = start_date_final,  
+                end_date        = end_date_final,
                 duration_days   = action_data.get("duration_days"),
                 status          = target_status,
                 submission_date = datetime.now().date()
