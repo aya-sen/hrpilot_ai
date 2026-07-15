@@ -282,7 +282,8 @@ def check_team_availability(
     # Get total team size for this department AND city
     team_size = db.query(models.Employee).filter(
         models.Employee.department == department,
-        models.Employee.city == city  # 🏢 ADD THIS: Filter total size by city
+        models.Employee.city == city ,
+        models.Employee.status != "Resigned" # 🏢 ADD THIS: Filter total size by city
     ).count()
     
     return {

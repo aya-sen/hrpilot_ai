@@ -176,7 +176,7 @@ def show_analysis():
                 
                 if matched_emp:
                     st.success(f"Employé détecté : **{matched_emp['name']}**")
-                    doc_type = st.selectbox("Type de document", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie", "Lettre de congé"])
+                    doc_type = st.selectbox("Type de document", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie"])
                     
                     if st.button("Générer le document", type="primary"):
                         # 1. Étape nécessaire : Créer la requête de document pour obtenir un ID
@@ -299,7 +299,7 @@ def show_analysis():
                         
                         if manual_form_type == "Demande de Document":
                             st.markdown(f"#### Formulaire : Création de Document Administratif")
-                            doc_type = st.selectbox("Type de document requis", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie", "Lettre de conge"])
+                            doc_type = st.selectbox("Type de document requis", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie"])
                             purpose = st.text_input("Motif d'édition spécifié", value="Saisie manuelle suite à relecture de pièce")
                             
                             if st.button("Confirmer et Générer le Document", use_container_width=True, icon=":material/description:"):

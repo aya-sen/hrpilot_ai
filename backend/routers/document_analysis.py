@@ -161,7 +161,7 @@ def upload_and_analyze(
         if matched_employee and matched_employee.city.lower() != hr_city.lower():
             return {
                 "status": "security_restricted",
-                "message": f"Employee found ('{matched_employee.first_name} {matched_employee.last_name}') but access is restricted. They belong to {matched_employee.city}, while your access scope is restricted to {hr_city}.",
+                "message": f"Employé trouvé ('{matched_employee.first_name} {matched_employee.last_name}') mais l'accès est restreint. Il/elle appartient à {matched_employee.city}, alors que votre accès est limité à {hr_city}.",
                 "document_type": analysis.get("document_type"),
                 "suggested_action": "read_and_summarize"
             }
@@ -200,7 +200,7 @@ def upload_and_analyze(
         }
     
     except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="AI could not parse the document. Please try again.")
+         raise HTTPException(status_code=500, detail="L'IA n'a pas pu analyser le document. Veuillez réessayer.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -279,17 +279,17 @@ def import_rules_from_pdf(file: UploadFile = File(...), db: Session = Depends(ge
         text_content = extract_text_from_pdf(temp_path)
         
         system_prompt = """Tu es un expert RH. Extrait les règles du règlement intérieur fourni.
-Réponds UNIQUEMENT avec un JSON valide:
-{
-  "rules": [
-    {
-      "category": "Congés/Absences/Horaires/Télétravail/Documents/Autre",
-      "title": "titre court de la règle",
-      "content": "contenu complet de la règle"
-    }
-  ]
-}
-Extrait maximum 20 règles les plus importantes."""
+                        Réponds UNIQUEMENT avec un JSON valide:
+                        {
+                        "rules": [
+                            {
+                            "category": "Congés/Absences/Horaires/Télétravail/Documents/Autre",
+                            "title": "titre court de la règle",
+                            "content": "contenu complet de la règle"
+                            }
+                        ]
+                        }
+                        Extrait maximum 20 règles les plus importantes."""
 
         messages = [
             SystemMessage(content=system_prompt),
