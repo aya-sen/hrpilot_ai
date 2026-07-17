@@ -63,8 +63,16 @@ if "department" not in st.session_state:
 if not st.session_state.logged_in:
     from login import show_login
     show_login()
+    st.stop()
 else:
     role = st.session_state.role
+
+    # Force change-password page (Employee only)
+    must_change_password = bool(st.session_state.get("must_change_password", False))
+    if role == "Employee" and must_change_password:
+        from pages.employee.first_login_change_password import show_first_login_change_password
+        show_first_login_change_password()
+        st.stop()
 
     # ── Sidebar navigation ────────────────────────────────────────────────────
     with st.sidebar:
@@ -130,9 +138,9 @@ else:
             is_active = st.session_state.current_page == page_id
             
             if st.button(
-                info["label"], 
-                key=f"btn_{page_id}", 
-                use_container_width=True, 
+                info["label"],
+                key=f"btn_{page_id}",
+                use_container_width=True,
                 icon=f":material/{info['icon']}:",
                 type="primary" if is_active else "secondary"
             ):

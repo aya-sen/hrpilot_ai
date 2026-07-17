@@ -291,6 +291,7 @@ def show_employees():
         else:
             from utils.api import add_employee
             result = add_employee({
+                "hr_city":       st.session_state.city,
                 "first_name":    first_name,
                 "last_name":     last_name,
                 "email":         email,

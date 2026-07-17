@@ -10,6 +10,8 @@ class Employee(Base):
     last_name = Column(String(50), nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
+    # When True: user must change password on first login.
+    must_change_password = Column(Integer, nullable=False, default=1)  # MySQL boolean (0/1)
     phone_number = Column(String(20), nullable=True)
     gender = Column(Enum('Male', 'Female'), nullable=False)
     birth_date = Column(Date, nullable=False)
@@ -23,7 +25,6 @@ class Employee(Base):
     leave_balance_days = Column(Integer, nullable=False, default=26)
     status = Column(Enum('Active', 'On Leave','On leave', 'Resigned'), nullable=False, default='Active')
     role = Column(Enum('Employee', 'Manager', 'HR'), nullable=True, default='Employee')
-    
 
 
 class LeaveRequest(Base):

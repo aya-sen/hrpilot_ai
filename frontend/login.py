@@ -104,13 +104,13 @@ def show_login():
                         st.session_state.last_name   = result["last_name"]
                         st.session_state.city        = result["city"]
                         st.session_state.department  = result["department"]
+                        st.session_state.must_change_password = bool(result.get("must_change_password", True))
                         st.success(f"Bienvenue {result['first_name']} !")
                         st.rerun()
                     else:
                         st.error("Email ou mot de passe incorrect.")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            st.info("**Password123!**")
             
             st.markdown("""
                 <div style="display: flex; align-items: center; margin: 20px 0;">

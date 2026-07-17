@@ -266,7 +266,7 @@ def chat(employee_id: int, message: str, db: Session = Depends(get_db)):
     except Exception as e:
         error_message = str(e)
         if "429" in error_message or "rate limit" in error_message.lower():
-            print(f"GROQ RATE LIMIT DETAIL: {error_message}")  # ← ajoute cette ligne temporairement
+            print(f"GROQ RATE LIMIT DETAIL: {error_message}")  
             raise HTTPException(
                 status_code=429,
                 detail="Le service est temporairement surchargé, veuillez réessayer dans quelques instants."

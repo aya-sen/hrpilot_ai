@@ -53,7 +53,8 @@ def login(email: str, password: str, db: Session = Depends(get_db)):
         "role": employee.role,
         "city": employee.city,
         "department": employee.department,
-        "position": employee.position
+        "position": employee.position,
+        "must_change_password": bool(getattr(employee, "must_change_password", 1))
     }
 
 

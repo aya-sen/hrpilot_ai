@@ -202,83 +202,119 @@ def update_leave_balance(employee_id: int, days_to_deduct: int, db: Session = De
 import bcrypt as bcrypt_lib
 
 @router.put("/{employee_id}/change-password")
-def change_password(employee_id: int, old_password: str, 
+def change_password(employee_id: int, old_password: str,
                     new_password: str, db: Session = Depends(get_db)):
     employee = db.query(models.Employee).filter(
         models.Employee.employee_id == employee_id
     ).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    
+
     # Verify old password
-    if not bcrypt_lib.checkpw(old_password.encode('utf-8'),
-                               employee.password_hash.encode('utf-8')):
+    if not bcrypt_lib.checkpw(old_password.encode("utf-8"),
+                               employee.password_hash.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Mot de passe actuel incorrect")
-    
+
     # Hash new password
-    new_hash = bcrypt_lib.hashpw(new_password.encode('utf-8'),
-                                  bcrypt_lib.gensalt()).decode('utf-8')
+    new_hash = bcrypt_lib.hashpw(new_password.encode("utf-8"),
+                                 bcrypt_lib.gensalt()).decode("utf-8")
     employee.password_hash = new_hash
+
+    # After success: disable forced change
+    if hasattr(employee, "must_change_password"):
+        employee.must_change_password = 0
+
     db.commit()
     return {"message": "Mot de passe modifié avec succès"}
 
 from datetime import datetime  # À ajouter en haut de ton fichier backend
+import os
+import random
+import string
+from backend.mailer import send_temp_password_email
+
 
 @router.post("/add")
 def add_employee(data: dict, db: Session = Depends(get_db)):
-    # 1. Vérification e-mail (déjà présent)
+    # ── 0) HR city security ────────────────────────────────────────────────
+    hr_city = data.get("hr_city")
+    if not hr_city:
+        raise HTTPException(status_code=400, detail="Missing hr_city")
+
+    if data.get("city") != hr_city:
+        raise HTTPException(
+            status_code=403,
+            detail=f"City mismatch: data.city={data.get('city')} must match hr_city={hr_city}",
+        )
+
+    # 1. Vérification e-mail
     existing = db.query(models.Employee).filter(models.Employee.email == data.get("email")).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    # 2. Hash du mot de passe (déjà présent)
-    default_hash = bcrypt_lib.hashpw(
-        "Password123!".encode('utf-8'),
-        bcrypt_lib.gensalt()
-    ).decode('utf-8')
+    # 2. Generate random temp password + hash
+    alphabet = string.ascii_letters + string.digits
+    temp_password = "".join(random.choice(alphabet) for _ in range(12)) + "!"
+
+    temp_hash = bcrypt_lib.hashpw(
+        temp_password.encode("utf-8"),
+        bcrypt_lib.gensalt(),
+    ).decode("utf-8")
 
     # ── 🛠️ RECHERCHE AUTOMATIQUE DU MANAGER DU DÉPARTEMENT ──
     detected_manager_id = None
-    # Si le nouvel inscrit est un simple "Employee", il lui faut un manager
     if data.get("role") == "Employee":
-        # On cherche le premier employé qui est "Manager" ET dans le même département
         dept_manager = db.query(models.Employee).filter(
             models.Employee.department == data.get("department"),
             models.Employee.role == "Manager",
-            models.Employee.status == "Active" # Optionnel : s'il est actif
+            models.Employee.status == "Active",
         ).first()
-        
+
         if dept_manager:
             detected_manager_id = dept_manager.employee_id
     # ────────────────────────────────────────────────────────
 
     new_emp = models.Employee(
-        first_name         = data.get("first_name"),
-        last_name          = data.get("last_name"),
-        email              = data.get("email"),
-        password_hash      = default_hash,
-        phone_number       = data.get("phone_number"),
-        gender             = data.get("gender"),
-        birth_date         = data.get("birth_date"),
-        city               = data.get("city"),
-        department         = data.get("department"),
-        position           = data.get("position"),
-        contract_type      = data.get("contract_type"),
-        hire_date          = data.get("hire_date"),
-        salary             = data.get("salary"),
-        leave_balance_days = 26,
-        status             = "Active",
-        role               = data.get("role", "Employee"),
-        manager_id         = detected_manager_id  # <-- REMPLACE data.get("manager_id") PAR NOTRE VARIABLE AUTO !
+        first_name=data.get("first_name"),
+        last_name=data.get("last_name"),
+        email=data.get("email"),
+        password_hash=temp_hash,
+        must_change_password=1,
+        phone_number=data.get("phone_number"),
+        gender=data.get("gender"),
+        birth_date=data.get("birth_date"),
+        city=data.get("city"),
+        department=data.get("department"),
+        position=data.get("position"),
+        contract_type=data.get("contract_type"),
+        hire_date=data.get("hire_date"),
+        salary=data.get("salary"),
+        leave_balance_days=26,
+        status="Active",
+        role=data.get("role", "Employee"),
+        manager_id=detected_manager_id,
     )
 
     db.add(new_emp)
     db.commit()
     db.refresh(new_emp)
 
+    # 3) Send temp password email once (plain once)
+    #    If SMTP is not configured, we still keep the employee, but surface error.
+    try:
+        send_temp_password_email(
+            to_email=new_emp.email,
+            to_name=f"{new_emp.first_name}",
+            city=hr_city,
+            temp_password=temp_password,
+        )
+    except Exception as e:
+        # Do not expose password in error.
+        raise HTTPException(status_code=500, detail=f"Employee created but failed to send email: {e}")
+
     return {
-        "message": "Employee added successfully",
-        "employee_id": new_emp.employee_id
+        "message": "Employee added successfully (temp password emailed)",
+        "employee_id": new_emp.employee_id,
     }
 
 

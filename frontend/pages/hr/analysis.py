@@ -83,9 +83,10 @@ def show_analysis():
             # Mapping mis à jour avec notre nouvelle logique
             action_mapping = {
                 "create_leave_request": "Traitement Automatique (Congé)",
-                "create_document_request": "Génération de Document",
+                "create_resignation": "Traitement Automatique (Démission)",
                 "read_and_summarize": "Lecture & Analyse Consultative"
             }
+
             raw_action = res.get("suggested_action")
             clean_action_phrase = action_mapping.get(raw_action, raw_action)
 
@@ -171,86 +172,136 @@ def show_analysis():
                                 st.error(f"Erreur de connexion : {str(e)}")
                     else:
                         st.info("Veuillez sélectionner un employé pour afficher le formulaire.")
-            elif raw_action == "create_document_request":
-                st.subheader(":material/description: Génération de document")
-                
-                if matched_emp:
-                    st.success(f"Employé détecté : **{matched_emp['name']}**")
-                    doc_type = st.selectbox("Type de document", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie"])
-                    
-                    if st.button("Générer le document", type="primary"):
-                        # 1. Étape nécessaire : Créer la requête de document pour obtenir un ID
-                        # Assure-toi que cette route existe pour créer la demande (ex: POST /documents/create)
-                        payload = {
-                            "employee_id": matched_emp.get('employee_id'), 
-                            "document_type": doc_type
-                        }
-                        
+            elif raw_action == "create_resignation":
+                st.subheader(":material/assignment_ind: Traitement Automatique (Démission)")
+
+                with st.container(border=True):
+                    st.markdown("### :material/edit: Proposition RH")
+
+                    target_emp_id = None
+                    default_date = None
+
+                    if form_data and form_data.get("type") == "resignation_update":
+                        default_date = form_data.get("resignation_date")
+
+                    # 1) Identification employé (auto si possible)
+                    if matched_emp:
+                        st.success(f"Employé détecté : **{matched_emp['name']}**", icon=":material/badge:")
+                        target_emp_id = matched_emp['employee_id']
+                    else:
+                        emp_res = requests.get(f"{API_URL.replace('/analysis', '')}/employees", headers={"X-City": hr_city})
+                        if emp_res.status_code == 200:
+                            emp_list = [e for e in emp_res.json() if str(e.get("city", "")).lower() == hr_city.lower()]
+                            emp_map = {f"{e['first_name']} {e['last_name']}": e for e in emp_list}
+                            selected = st.selectbox("Sélectionner l'employé :", options=[""] + list(emp_map.keys()))
+                            if selected:
+                                target_emp_id = emp_map[selected]['employee_id']
+                        else:
+                            st.error("Impossible de charger la liste des employés.", icon=":material/error:")
+
+                    # 2) Sélection date effective
+                    if default_date:
                         try:
-                            BASE_URL = API_URL.replace('/analysis', '')
-
-                            # 1) Créer la demande (backend: POST /documents/submit)
-                            create_req = requests.post(
-                                f"{BASE_URL}/documents/submit",
-                                params={"employee_id": matched_emp.get('employee_id')},
-                                json={"document_type": doc_type, "purpose": None}
+                            effective_date_input = st.date_input(
+                                "Date effective (dernier jour de travail / date de départ)",
+                                value=default_date
                             )
+                        except Exception:
+                            effective_date_input = st.date_input(
+                                "Date effective (dernier jour de travail / date de départ)"
+                            )
+                    else:
+                        from datetime import date, timedelta
+                        effective_date_input = st.date_input(
+                            "Date effective (dernier jour de travail / date de départ)",
+                            value=date.today() + timedelta(days=1)
+                        )
 
-                            if create_req.status_code != 200:
-                                st.error(f"Impossible de créer la demande de document: {create_req.text}")
-                                return
-
-                            doc_request_id = create_req.json().get("doc_request_id")
-                            if not doc_request_id:
-                                st.error("doc_request_id introuvable dans la réponse backend.")
-                                return
-
-                            # 2) Générer le document (backend: PUT /documents/{doc_request_id}/generate)
-                            gen_res = requests.put(f"{BASE_URL}/documents/{doc_request_id}/generate", json={})
-                            if gen_res.status_code != 200:
-                                st.error(f"Erreur lors de la génération : {gen_res.text}")
-                                return
-
-                            # 3) Charger le fichier en bytes pour afficher le bouton Téléchargement
-                            download_res = requests.get(f"{BASE_URL}/documents/{doc_request_id}/download")
-                            if download_res.status_code != 200:
-                                st.error(f"Erreur lors du download : {download_res.text}")
-                                return
-
-                            st.success("Document généré avec succès !")
-
-                            st.download_button(
-                                label="Télécharger le document",
-                                data=download_res.content,
-                                    file_name=f"{doc_type}_{matched_emp['name']}.docx",
-                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                )
-
+                    # 3) Confirmer
+                    if target_emp_id and st.button(
+                        "Confirmer et Mettre à jour le Statut",
+                        type="primary",
+                        use_container_width=True
+                    ):
+                        payload = {
+                            "employee_id": target_emp_id,
+                            "resigned_effective_date": str(effective_date_input)
+                        }
+                        try:
+                            conf = requests.post(f"{API_URL}/confirm-resignation", json=payload)
+                            if conf.status_code == 200:
+                                st.session_state["analysis_success"] = "Statut employé mis à jour : Resigned."
+                                del st.session_state["active_analysis"]
+                                st.rerun()
+                            else:
+                                st.error(f"Erreur serveur : {conf.text}")
                         except Exception as e:
-                            st.error(f"Erreur système : {e}")
+                            st.error(f"Erreur de connexion : {str(e)}")
+
             # ── MODE 2: CONSULTATIVE / ASSISTED WORKFLOW (CV, Contrats, Courriers) ──
             else:
                 st.success("Analyse consultative terminée. Aucune action automatisée en base de données n'est requise pour ce type de document.", icon=":material/info:")
-                
+
                 with st.expander(":material/content_paste_search: Visualiser les informations extraites par l'IA", expanded=True):
-                    extracted = res.get("extracted_data", {})
+                    extracted = res.get("extracted_data", {}) or {}
                     if extracted:
-                        # Extraction des clés de manière propre et élégante
                         emp_name = extracted.get("employee_name")
                         purpose_text = extracted.get("purpose")
                         extra_details = extracted.get("any_other_relevant_field")
+
+                        cv_profile = extracted.get("cv_profile")
 
                         # Affichage structuré en langage naturel avec les icônes Material
                         if emp_name and emp_name != "NULL":
                             st.markdown(f":material/person: **Identité détectée :** {emp_name}")
 
+                        # Priorité CV: afficher sections recruteur
+                        if cv_profile and cv_profile != "NULL":
+                            skills = cv_profile.get("skills") or []
+                            experiences = cv_profile.get("experiences") or []
+                            education = cv_profile.get("education") or []
+                            languages = cv_profile.get("languages") or []
+
+                            if skills:
+                                st.markdown(":material/lightbulb: **Compétences clés :**")
+                                st.write(", ".join(skills[:12]))
+
+                            if experiences:
+                                st.markdown(":material/work: **Expériences (aperçu) :**")
+                                for exp in experiences[:4]:
+                                    company = exp.get("company") or ""
+                                    title = exp.get("title") or ""
+                                    dates = exp.get("dates") or ""
+                                    line = " - ".join([x for x in [title, company] if x])
+                                    if dates:
+                                        st.write(f"• {line} ({dates})")
+                                    else:
+                                        st.write(f"• {line}")
+
+                            if education:
+                                st.markdown(":material/school: **Formation (aperçu) :**")
+                                for edu in education[:3]:
+                                    degree = edu.get("degree") or ""
+                                    school = edu.get("school") or ""
+                                    dates = edu.get("dates") or ""
+                                    line = " - ".join([x for x in [degree, school] if x])
+                                    if dates:
+                                        st.write(f"• {line} ({dates})")
+                                    else:
+                                        st.write(f"• {line}")
+
+                            if languages:
+                                st.markdown(":material/language: **Langues :**")
+                                st.write(", ".join(languages))
+
+                        # Fallback non-CV (ou informations additionnelles)
                         if purpose_text and purpose_text != "NULL":
                             st.markdown(f":material/target: **Objectif / Motif identifié :** {purpose_text}")
 
                         if extra_details and extra_details != "NULL":
                             st.markdown(f":material/description: **Éléments contextuels clés :** {extra_details}")
-                            
-                        if not any([emp_name, purpose_text, extra_details]) or all(v == "NULL" for v in [emp_name, purpose_text, extra_details]):
+
+                        if not cv_profile and not any([emp_name, purpose_text, extra_details]) or all(v == "NULL" for v in [emp_name, purpose_text, extra_details]):
                             st.caption("Aucune entité structurelle spécifique n'a été isolée dans ce document.")
                     else:
                         st.caption("Aucune donnée structurelle spécifique n'a été extraite.")
@@ -290,7 +341,7 @@ def show_analysis():
                             chosen_employee = None
                 
                     with col_doc:
-                        manual_form_type = st.selectbox("Type de formulaire à ouvrir", options=["Demande de Document", "Demande de Congé"])
+                        manual_form_type = st.selectbox("Type de formulaire à ouvrir", options=["Demande de Congé"])
                     
                     st.write("---")
 
@@ -298,7 +349,7 @@ def show_analysis():
                         st.success(f"Employé sélectionné : **{chosen_employee['first_name']} {chosen_employee['last_name']}**", icon=":material/badge:")
                         
                         if manual_form_type == "Demande de Document":
-                            st.markdown(f"#### Formulaire : Création de Document Administratif")
+                            '''st.markdown(f"#### Formulaire : Création de Document Administratif")
                             doc_type = st.selectbox("Type de document requis", ["Attestation de travail", "Attestation de salaire", "Bulletin de paie"])
                             purpose = st.text_input("Motif d'édition spécifié", value="Saisie manuelle suite à relecture de pièce")
                             
@@ -310,7 +361,7 @@ def show_analysis():
                                     del st.session_state["active_analysis"]
                                     st.rerun()
                                 else:
-                                    st.error(f"Erreur : {res_doc.text}", icon=":material/error:")
+                                    st.error(f"Erreur : {res_doc.text}", icon=":material/error:")'''
 
                         elif manual_form_type == "Demande de Congé":
                             st.markdown(f"#### Formulaire : Enregistrement d'Absence / Congé")

@@ -25,6 +25,7 @@ app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(chatbot.router)
 app.include_router(document_analysis.router)
+
 app.include_router(dashboard.router)
 
 

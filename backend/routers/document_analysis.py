@@ -42,36 +42,51 @@ def extract_text_from_pdf(file_path: str) -> str:
 def analyze_with_ai(text: str) -> dict:
     system_prompt = """Tu es un assistant spécialisé dans la qualification et l'analyse de documents RH marocains.
     
-Analyse le document fourni et réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après.
+                Analyse le document fourni et réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après.
 
-Format de réponse obligatoire:
-{
-  "document_type": "Type précis du document",
-  "confidence": "High/Medium/Low",
-  "extracted_data": {
-    "employee_name": "nom complet détecté ou null",
-    "start_date": "YYYY-MM-DD ou null",
-    "end_date": "YYYY-MM-DD ou null", 
-    "duration_days": nombre ou null,
-    "purpose": "objet, poste cible, ou raison principale ou null",
-    "doctor_name": "nom médecin ou null",
-    "any_other_relevant_field": "éléments clés textuels extraits ou null"
-  },
-  "suggested_action": "create_leave_request / read_and_summarize",
-  "summary": "résumé clair et métier de ce document (ex: CV de X pour le poste Y)"
-}
+                Format de réponse obligatoire:
+                {
+                "document_type": "Type précis du document",
+                "confidence": "High/Medium/Low",
+                "extracted_data": {
+                    "employee_name": "nom complet détecté ou null",
+                    "start_date": "YYYY-MM-DD ou null",
+                    "end_date": "YYYY-MM-DD ou null",
+                    "duration_days": nombre ou null,
+                    "purpose": "objet, poste cible, ou raison principale ou null",
+                    "doctor_name": "nom médecin ou null",
 
-Règles strictes pour "document_type" :
-1. Sois dynamique et précis : Tu n'es pas limité à une liste fixe. Si le document est un accord de confidentialité, écris "Accord de confidentialité". Si c'est un rapport, écris "Rapport".
-2. Différence cruciale entre CV et Lettre de Motivation :
-   - Si le document est rédigé sous forme de lettre administrative (ex: "Objet: Candidature", "Madame, Monsieur", corps de texte), qualifie-le impérativement de "Lettre de motivation" ou "Lettre de candidature".
-   - Ne le qualifie de "Curriculum Vitae (CV)" QUE s'il s'agit d'un profil structuré avec des listes d'expériences et de formations.
+                    "any_other_relevant_field": "éléments clés textuels extraits ou null",
 
-Règles pour "suggested_action":
-- "create_leave_request" : Uniquement si le document implique directement un arrêt, une absence ou un congé médical (Certificat médical, Lettre de demande de congé).
-- "create_document_request" : Si le document contient une demande explicite d'attestation (travail, salaire, bancaire, etc.).
-- "read_and_summarize" : Pour TOUS les autres documents (CV, Lettre de motivation, Contrat, Bulletin de paie, etc.). L'objectif est d'informer le RH sans créer d'absence automatique.
-"""
+                    "cv_profile": {
+                    "skills": ["..."],
+                    "experiences": [{"company": "...", "title": "...", "dates": "..."}],
+                    "education": [{"degree": "...", "school": "...", "dates": "..."}],
+                    "languages": ["..."]
+                    }
+
+                    // cv_profile ne doit être rempli QUE si document_type = "Curriculum Vitae (CV)" sinon null
+                },
+                "suggested_action": "create_leave_request / create_resignation / read_and_summarize",
+
+                "summary": "résumé clair et métier de ce document (style recruteur, 1 paragraphe)"
+                }
+
+
+
+                Règles strictes pour "document_type" :
+                1. Sois dynamique et précis : Tu n'es pas limité à une liste fixe. Si le document est un accord de confidentialité, écris "Accord de confidentialité". Si c'est un rapport, écris "Rapport".
+                2. Différence cruciale entre CV et Lettre de Motivation :
+                - Si le document est rédigé sous forme de lettre administrative (ex: "Objet: Candidature", "Madame, Monsieur", corps de texte), qualifie-le impérativement de "Lettre de motivation" ou "Lettre de candidature".
+                - Ne le qualifie de "Curriculum Vitae (CV)" QUE s'il s'agit d'un profil structuré avec des listes d'expériences et de formations.
+
+                Règles pour "suggested_action":
+                - "create_leave_request" : Uniquement si le document implique directement un arrêt, une absence ou un congé médical (Certificat médical, Lettre de demande de congé).
+                - "create_resignation" : Uniquement si le document est une lettre de démission / demande de rupture / notice de départ, et que des informations comme la date de fin (dernier jour de travail / date effective) peuvent être extraites.
+                - "read_and_summarize" : Pour TOUS les autres documents (CV, Lettre de motivation, Contrat, Bulletin de paie, etc.). L'objectif est d'informer le RH sans créer d'absence automatique.
+                """
+
+
 
     messages = [
         SystemMessage(content=system_prompt),
@@ -87,7 +102,11 @@ Règles pour "suggested_action":
             content = content[4:]
     content = content.strip()
     
-    return json.loads(content)
+    data = json.loads(content)
+
+    # Normalisation CV: si cv_profile existe mais vaut "null"/absent, on laisse tel quel
+    # (le frontend gère)
+    return data
 
 
 
@@ -167,21 +186,35 @@ def upload_and_analyze(
             }
 
         prefilled_form = None
-        # Déclenchement automatique de formulaire UNIQUEMENT pour les congés/certificats
+        # Déclenchement automatique de formulaire UNIQUEMENT pour les workflows encadrés
         if analysis.get("suggested_action") == "create_leave_request":
+
             # On extrait l'ID si le match a réussi, sinon on laisse None
             emp_id = matched_employee.employee_id if matched_employee else None
-            
+
             prefilled_form = {
                 "type": "leave_request",
-                "employee_id": emp_id, # Sera None si non trouvé, le frontend gérera
+                "employee_id": emp_id,  # Sera None si non trouvé, le frontend gérera
                 "start_date": analysis["extracted_data"].get("start_date"),
                 "end_date": analysis["extracted_data"].get("end_date"),
                 "duration_days": analysis["extracted_data"].get("duration_days"),
                 "employee_comment": analysis["extracted_data"].get("purpose", "")
             }
-    
-        
+
+        elif analysis.get("suggested_action") == "create_resignation":
+
+            emp_id = matched_employee.employee_id if matched_employee else None
+            extracted = analysis.get("extracted_data", {}) or {}
+
+            # Pour la lettre de démission, on utilise end_date comme dernier jour de travail
+            resignation_date = extracted.get("end_date") or extracted.get("start_date")
+
+            prefilled_form = {
+                "type": "resignation_update",
+                "employee_id": emp_id,
+                "resignation_date": resignation_date
+            }
+
         # Retour complet et unifié pour l'interface utilisateur
         return {
             "status": "success",
@@ -236,22 +269,47 @@ def confirm_leave_from_analysis(payload: dict, db: Session = Depends(get_db)):
 # ── Confirm Document Request ──────────────────────────────────────────────────
 @router.post("/confirm-document")
 def confirm_document_from_analysis(payload: dict, db: Session = Depends(get_db)):
+
     employee_id = payload.get("employee_id")
     employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
-    
+
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-        
+
     new_request = models.DocumentRequest(
-        employee_id   = employee_id,
-        document_type = payload.get("document_type", "Attestation de travail"),
-        purpose       = payload.get("purpose", "Analyse documentaire IA"),
-        status        = "Pending",
-        request_date  = date.today()
+        employee_id=employee_id,
+        document_type=payload.get("document_type", "Attestation de travail"),
+        purpose=payload.get("purpose", "Analyse documentaire IA"),
+        status="Pending",
+        request_date=date.today(),
     )
     db.add(new_request)
     db.commit()
     return {"message": "Document request logged successfully"}
+
+
+# ── Confirm Resignation (update employee.status) ─────────────────────────────
+@router.post("/confirm-resignation")
+def confirm_resignation_from_analysis(payload: dict, db: Session = Depends(get_db)):
+    employee_id = payload.get("employee_id")
+    resigned_effective_date = payload.get("resigned_effective_date")
+
+    employee = db.query(models.Employee).filter(models.Employee.employee_id == employee_id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # No DB schema change: we only update the status field
+    employee.status = "Resigned"
+    db.commit()
+    db.refresh(employee)
+
+    return {
+        "message": "Employee marked as Resigned",
+        "employee_id": employee_id,
+        "resigned_effective_date": resigned_effective_date,
+        "new_status": employee.status,
+    }
+
 
 # ── Import règlement intérieur ────────────────────────────────────────────────
 @router.post("/import-rules")
