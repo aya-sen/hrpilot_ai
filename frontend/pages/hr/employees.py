@@ -249,7 +249,6 @@ def show_employees():
 
     # ── 6. ADD NEW EMPLOYEE FORM ──────────────────────────────────────────────
     st.subheader(":material/person_add: Ajouter un nouvel employé")
-    st.info("Le mot de passe par défaut sera **Password123!** — l'employé devra le changer à sa première connexion.", icon=":material/lightbulb:")
 
     # 1. On initialise la version du formulaire dans le state si elle n'existe pas
     if "form_version" not in st.session_state:
@@ -272,7 +271,9 @@ def show_employees():
                 max_value=date.today()
             )
         with col2:
-            city          = st.selectbox("Ville *", ["Casablanca", "Rabat", "Tanger"])
+            # HR ne peut ajouter des employés que dans sa propre ville (pré-remplie)
+            city = st.session_state.city
+            st.text_input("Ville *", value=city, disabled=True)
             department    = st.selectbox("Département *", [
                 "IT","Finance","HR","Marketing",
                 "Sales","Operations","Support","R&D"
@@ -282,6 +283,7 @@ def show_employees():
             hire_date     = st.date_input("Date d'embauche")
             salary        = st.number_input("Salaire (MAD)", min_value=0.0, step=500.0)
             role          = st.selectbox("Rôle", ["Employee","Manager","HR"])
+
 
         submit = st.form_submit_button(":material/person_add: Ajouter l'employé", use_container_width=True)
 

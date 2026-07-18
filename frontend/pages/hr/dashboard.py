@@ -142,6 +142,20 @@ def show_dashboard():
             label=":material/history: Ancienneté moyenne",
             value=f"{seniority.get('avg_years', 0)} ans"
         )
+
+        by_department = seniority.get("by_department", [])
+        if by_department:
+            with st.expander("Voir le détail par département"):
+                df_sen = pd.DataFrame(by_department)
+                df_sen = df_sen.rename(columns={
+                    "department": "Département",
+                    "total": "Effectif",
+                    "avg_years": "Ancienneté moyenne (ans)"
+                })
+
+                # Affichage simple (valeurs déjà arrondies côté backend)
+                st.dataframe(df_sen, hide_index=True, use_container_width=True)
+
     
 
     st.divider()

@@ -68,8 +68,14 @@ else:
     role = st.session_state.role
 
     # Force change-password page (Employee only)
-    must_change_password = bool(st.session_state.get("must_change_password", False))
-    if role == "Employee" and must_change_password:
+    # If DB column is missing/NULL for legacy users, default to False so they can access Accueil.
+    must_change_password = st.session_state.get("must_change_password")
+    try:
+        must_change_password = bool(int(must_change_password)) if must_change_password is not None else False
+    except Exception:
+        must_change_password = bool(must_change_password) if must_change_password is not None else False
+
+    if must_change_password:
         from pages.employee.first_login_change_password import show_first_login_change_password
         show_first_login_change_password()
         st.stop()

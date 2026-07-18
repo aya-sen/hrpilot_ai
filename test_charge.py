@@ -1,6 +1,6 @@
 from locust import HttpUser, task, between
 
-class ChatbotUser(HttpUser):
+'''   class ChatbotUser(HttpUser):
     wait_time = between(15, 20)
 
     @task
@@ -9,7 +9,7 @@ class ChatbotUser(HttpUser):
             "employee_id": 45,
             "message": "Quel est mon solde de congés ?"
         })
-'''   
+
 from locust import HttpUser, task, between
 
 class EmployeeListUser(HttpUser):
@@ -19,3 +19,15 @@ class EmployeeListUser(HttpUser):
     def get_employees(self):
         self.client.get("/employees/")   
 '''     
+
+from locust import HttpUser, task, between
+
+class ChatbotUserNormal(HttpUser):
+    wait_time = between(50, 70)
+
+    @task
+    def send_message(self):
+        self.client.post("/chatbot/message", params={
+            "employee_id": 45,
+            "message": "Quel est mon solde de congés ?"
+        })

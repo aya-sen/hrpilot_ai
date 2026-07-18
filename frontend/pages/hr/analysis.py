@@ -305,7 +305,12 @@ def show_analysis():
                             st.caption("Aucune entité structurelle spécifique n'a été isolée dans ce document.")
                     else:
                         st.caption("Aucune donnée structurelle spécifique n'a été extraite.")
-                if st.checkbox("Afficher la saisie manuelle si nécessaire"):
+                # Si le document est un CV : on cache l'option de saisie manuelle
+                # (on garde uniquement l'affichage consultatif des informations extraites)
+                doc_type_lower = (res.get("document_type") or "").lower()
+                is_cv_doc = any(k in doc_type_lower for k in ["cv", "curriculum", "resume", "cv "])
+
+                if not is_cv_doc and st.checkbox("Afficher la saisie manuelle si nécessaire"):
                     st.markdown("### Action RH Alternative (Saisie Manuelle)")
                     st.caption("Si ce document nécessite tout de même une action administrative, utilisez le sélecteur ci-dessous :")
                     

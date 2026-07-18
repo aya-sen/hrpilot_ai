@@ -313,20 +313,61 @@ def turnover_rate(city: str, db: Session = Depends(get_db)):
 
 @router.get("/avg-seniority/{city}")
 def avg_seniority(city: str, db: Session = Depends(get_db)):
-    query = db.query(models.Employee).filter(
+    # Seniority = (today - hire_date) en années
+    # On calcule aussi un détail par département pour pouvoir afficher un tableau.
+
+    base_query = db.query(models.Employee).filter(
         models.Employee.hire_date != None,
         models.Employee.status != "Resigned"
     )
+
     if city != "all":
-        query = query.filter(models.Employee.city == city)
-    
-    employees = query.all()
+        base_query = base_query.filter(models.Employee.city == city)
+
+    employees = base_query.all()
+
     if not employees:
-        return {"avg_years": 0}
-    today     = date.today()
+        return {"avg_years": 0, "total_employees": 0, "by_department": []}
+
+    today = date.today()
+
     total_days = sum((today - emp.hire_date).days for emp in employees)
-    avg_years  = round(total_days / len(employees) / 365, 1)
-    return {"avg_years": avg_years, "total_employees": len(employees)}
+    avg_years = round(total_days / len(employees) / 365, 1)
+
+    # Détail par département
+    departments_q = db.query(models.Employee.department).distinct()
+    if city != "all":
+        departments_q = departments_q.filter(models.Employee.city == city)
+
+    departments = [d[0] for d in departments_q.all() if d[0]]
+
+    by_department = []
+    for dept in departments:
+        dept_query = db.query(models.Employee).filter(
+            models.Employee.department == dept,
+            models.Employee.hire_date != None,
+            models.Employee.status != "Resigned"
+        )
+        if city != "all":
+            dept_query = dept_query.filter(models.Employee.city == city)
+
+        dept_emps = dept_query.all()
+        if not dept_emps:
+            continue
+
+        dept_days = sum((today - emp.hire_date).days for emp in dept_emps)
+        dept_avg_years = round(dept_days / len(dept_emps) / 365, 1)
+
+        by_department.append({
+            "department": dept,
+            "total": len(dept_emps),
+            "avg_years": dept_avg_years
+        })
+
+    by_department.sort(key=lambda x: x["avg_years"], reverse=True)
+
+    return {"avg_years": avg_years, "total_employees": len(employees), "by_department": by_department}
+
 
 
 

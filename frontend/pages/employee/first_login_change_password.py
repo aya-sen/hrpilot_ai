@@ -38,6 +38,36 @@ def show_first_login_change_password():
         icon=":material/info:",
     )
 
+    st.markdown(
+        """
+        <style>
+        /* Force the exact Streamlit form submit button selector you inspected */
+        button[kind="primaryFormSubmit"] {
+            background-color: #000080 !important;
+            color: white !important;
+            border: none !important;
+        }
+        button[kind="primaryFormSubmit"]:hover {
+            background-color: #0000a0 !important;
+            color: white !important;
+            border: none !important;
+        }
+
+        /* Fallbacks (other button variants) */
+        div.stButton > button[kind="primary"] {
+            background-color: #000080 !important;
+            color: white !important;
+            border: none !important;
+        }
+        div.stButton > button[kind="primary"]:hover {
+            background-color: #0000a0 !important;
+            border: none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     with st.form("first_login_password_form"):
         old_password = st.text_input("Mot de passe actuel", type="password")
         new_password = st.text_input("Nouveau mot de passe", type="password")

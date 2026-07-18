@@ -133,8 +133,6 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
     elif "attestation" in doc_type_normalized:
         # attestation seule, sans précision → on regarde le purpose
         doc_type = "Attestation de salaire" if "salaire" in purpose_normalized else "Attestation de travail"
-    elif "conge" in doc_type_normalized and "lettre" in doc_type_normalized:
-        doc_type = "Lettre de congé"
     elif "bulletin" in doc_type_normalized and "paie" in doc_type_normalized:
         doc_type = "Bulletin de paie"
     elif "certificat" in doc_type_normalized and "travail" in doc_type_normalized:
@@ -154,24 +152,6 @@ def generate_document(doc_request_id: int, db: Session = Depends(get_db)):
                 emp_dict,
                 objet=doc_request.purpose or "usage personnel"
             )
-            
-        elif doc_type == "Lettre de congé":
-            # Find the related approved leave request
-            leave = db.query(models.LeaveRequest).filter(
-                models.LeaveRequest.employee_id == employee.employee_id,
-                models.LeaveRequest.status == "Approved"
-            ).order_by(models.LeaveRequest.request_id.desc()).first()
-            
-            if not leave:
-                raise HTTPException(status_code=404, detail="No approved leave found")
-            
-            leave_dict = {
-                "leave_type":    leave.leave_type,
-                "start_date":    leave.start_date,
-                "end_date":      leave.end_date,
-                "duration_days": leave.duration_days,
-            }
-            file_path = generate_lettre_conge(emp_dict, leave_dict)
             
         elif doc_type == "Bulletin de paie":
             
